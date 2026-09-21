@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { equityCurve, renderPage } from './chart.ts'
-import type { Journal, Trade } from './journal.ts'
+import type { Trade } from './journal.ts'
+import { costsOf, endedAs, equityCurve, exitPrice, netOf, stopAt } from './view.ts'
+
+/*
+ * There were two tests here that no longer have anything to test. The page
+ * used to be a string with the journal's JSON substituted into it, so a broker
+ * named "Bad </script> Broker" could close the script tag early and a tag
+ * containing "$&" could be eaten by the replacement, and both were checked.
+ * The page now holds the journal in memory and never becomes a string, so
+ * neither failure is reachable. Nothing replaced them, on purpose.
+ */
 
 function trade(positionId: string, net: number, opened: string, closed: string): Trade {
   return {
@@ -20,11 +29,6 @@ const trades = [
   trade('3', 7.5, '2026-09-09T10:00:00Z', '2026-09-09T11:00:00Z'),
 ]
 
-const journal: Journal = {
-  account: { id: '1', broker: 'Bad </script> Broker', currency: 'AUD' },
-  balance: 10_022.5, deposited: 10_000, serverUtcOffsetMinutes: 180, trades,
-}
-
 test('the curve starts at zero when the first trade opened, then steps once per trade', () => {
   const curve = equityCurve(trades)
   assert.deepEqual(curve.map((p) => p.equity), [0, 20, 15, 22.5])
@@ -37,29 +41,27 @@ test('no trades means no curve', () => {
   assert.deepEqual(equityCurve([]), [])
 })
 
-test('the page carries the facts of each trade and cannot break out of its script tag', () => {
-  const html = renderPage(journal)
-  assert.ok(html.includes('"balance":10022.5'))
-  assert.ok(html.includes('"ended":"manual"'))
-  assert.ok(html.includes('"stop":null'))
-  assert.ok(!html.includes('__DATA__'))
-  assert.ok(!html.includes('</script> Broker'))
+test('net is gross less what the trade cost to place and hold', () => {
+  const one = trades[1]!
+  assert.equal(netOf(one), 20)
+  assert.equal(costsOf(one), -1)
+  assert.equal(stopAt(one), null)
+  assert.equal(endedAs(one), 'manual')
+})
+
+test('the stop in force at the close wins over the one placed at entry', () => {
+  const trailed = { ...trades[1]!, stop: { initial: 95, final: 100.5 } }
+  assert.equal(stopAt(trailed), 100.5)
+  assert.equal(stopAt({ ...trades[1]!, stop: { initial: 95, final: null } }), 95)
 })
 
 test('a trade closed in pieces is filed under the exit that closed most of it', () => {
   const split = trade('1', 10, '2026-09-07T10:00:00Z', '2026-09-07T11:00:00Z')
-  split.entry.volume = 1
   split.exits = [
     { dealId: 'a', time: new Date('2026-09-07T11:00:00Z'), price: 101.1, volume: 0.75, reason: { kind: 'manual' } },
     { dealId: 'b', time: new Date('2026-09-07T11:00:05Z'), price: 102.3, volume: 0.25, reason: { kind: 'target', price: 102.3 } },
   ]
-  const html = renderPage({ ...journal, trades: [split] })
-  assert.ok(html.includes('"ended":"manual"'))
+  assert.equal(endedAs(split), 'manual')
   // The exit price is the average weighted by volume, to the decimals the broker quotes.
-  assert.ok(html.includes('"exit":101.4'))
-})
-
-test('a dollar sign in a tag survives being put on the page', () => {
-  const tagged = { ...trade('1', 10, '2026-09-07T10:00:00Z', '2026-09-07T11:00:00Z'), tag: 'cost $& more' }
-  assert.ok(renderPage({ ...journal, trades: [tagged] }).includes('"tag":"cost $& more"'))
+  assert.equal(exitPrice(split), 101.4)
 })

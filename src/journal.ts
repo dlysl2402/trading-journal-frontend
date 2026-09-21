@@ -1,19 +1,20 @@
 /**
  * Layer 2 — the trade.
  *
- * Layer 1 is the feed itself: `data/snapshot.json` holds every deal and order
- * exactly as MetaApi sent them. This module turns that into round trips. It
- * holds facts about each trade — what was done, at what price, why it ended —
- * and no metrics: net P&L, R-multiples and the equity curve are functions of
- * these fields, derived when needed so they can never drift from the broker.
+ * Layer 1 is the record: the backend repository fetches MetaApi and keeps
+ * every deal and order in Supabase exactly as the broker booked them. This
+ * module turns that into round trips, in the browser, on every load. It holds
+ * facts about each trade — what was done, at what price, why it ended — and no
+ * metrics: net P&L, R-multiples and the equity curve are functions of these
+ * fields, derived when needed so they can never drift from the broker.
  *
  * MT5 does not store closed positions. A terminal draws that table by grouping
  * deals on their position id, and the same grouping happens here. Anything the
- * feed can send that this module has no shape for — a correction, a close-by,
+ * record can hold that this module has no shape for — a correction, a close-by,
  * a stop-out — is refused rather than guessed at, so a surprise is loud.
  */
 
-import type { RawDeal, RawFeed, RawOrder } from './metaapi.ts'
+import type { RawDeal, RawFeed, RawOrder } from './rows.ts'
 
 export type Side = 'buy' | 'sell'
 

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+.DS_Store
+.vercel
+
+# A snapshot of the live feed, copied from the backend to run the tests
+# against a real fetch: same account holder details as a broker statement.
+data/

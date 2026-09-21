@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import test from 'node:test'
 import { buildJournal } from './journal.ts'
-import type { RawDeal, RawFeed, RawOrder } from './metaapi.ts'
+import type { RawDeal, RawFeed, RawOrder } from './rows.ts'
 
 /** An opening deal for a position of the same id, unless told otherwise. */
 function deal(over: Partial<RawDeal> & Pick<RawDeal, 'id'>): RawDeal {
@@ -144,10 +144,16 @@ test('refuses a stop-out rather than filing it as a manual close', () => {
     /deal 2: unrecognised reason "DEAL_REASON_SO"/)
 })
 
+/*
+ * A real fetch, to check the shapes above against what the broker actually
+ * sends. It is not committed and never can be: it carries the account
+ * holder's name and account number. The import writes one every run, so copy
+ * the backend repository's `data/snapshot.json` here to run this test.
+ */
 const SNAPSHOT = 'data/snapshot.json'
 
 test('the last real fetch still builds', {
-  skip: existsSync(SNAPSHOT) ? false : `needs ${SNAPSHOT} (npm run update)`,
+  skip: existsSync(SNAPSHOT) ? false : `needs ${SNAPSHOT} — copy it from the backend repository`,
 }, () => {
   const journal = buildJournal(JSON.parse(readFileSync(SNAPSHOT, 'utf8')) as RawFeed)
   assert.ok(journal.trades.length > 0)

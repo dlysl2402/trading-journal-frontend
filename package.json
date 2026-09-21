@@ -1,0 +1,17 @@
+{
+  "name": "trading-journal-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "license": "ISC",
+  "type": "module",
+  "scripts": {
+    "build": "rm -rf dist && tsc && cp index.html dist/",
+    "preview": "npm run build && python3 -m http.server -d dist 8000",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
+}
