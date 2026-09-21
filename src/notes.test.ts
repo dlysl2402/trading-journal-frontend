@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatTags, parseInlines, parseNote, parseTags, toMarkdown } from './notes.ts'
+import { parseInlines, parseNote, toMarkdown } from './notes.ts'
 
 /** The text of a block, ignoring which runs are bold — for the structural tests. */
 function text(block: { lines: { text: string }[][] } | { items: { text: string }[][] }): string[] {
@@ -86,19 +86,6 @@ test('markup in a note is text, never markup', () => {
 
 test('nothing but whitespace parses to nothing', () => {
   assert.deepEqual(parseNote('   \n  \n'), [])
-})
-
-test('tags split on commas, keeping the first spelling and dropping repeats', () => {
-  assert.deepEqual(parseTags(' breakout , ICT ,ict,  , breakout'), ['breakout', 'ICT'])
-})
-
-test('tags keep the order they were named in', () => {
-  assert.deepEqual(parseTags('zebra, apple'), ['zebra', 'apple'])
-})
-
-test('tags survive a round trip through the editor', () => {
-  const tags = ['news fade', 'B setup']
-  assert.deepEqual(parseTags(formatTags(tags)), tags)
 })
 
 // ── Writing it back down ────────────────────────────────────────────────────

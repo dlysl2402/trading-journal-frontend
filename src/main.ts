@@ -8,20 +8,23 @@
  * record beneath it.
  *
  * The margin is the exception, and the only thing read here that is not
- * derived: your notes and tags are not a function of the broker's rows, so
- * they are read from the record as they were written.
+ * derived: your notes, grades and tags, and the vocabulary the tags come from,
+ * are not a function of the broker's rows, so they are read from the record
+ * as they were written.
  */
 
 import { must } from './dom.ts'
 import { buildJournal } from './journal.ts'
 import { openMargin } from './margin.ts'
 import { drawPage } from './page.ts'
-import { AuthError, readAnnotations, readRecord, signIn, signOut, storedSession } from './store.ts'
+import { AuthError, readAnnotations, readRecord, readTags, signIn, signOut, storedSession } from './store.ts'
+import { openVocabulary } from './tags.ts'
 
 const gate = must('gate')
 const status = must('status')
 const app = must('app')
 const signout = must<HTMLButtonElement>('signout')
+const tagsButton = must<HTMLButtonElement>('tags-button')
 const freshness = must('freshness')
 
 const form = must<HTMLFormElement>('signin')
@@ -52,7 +55,7 @@ function ago(at: Date): string {
 }
 
 function askToSignIn(reason?: string): void {
-  signout.hidden = true
+  signout.hidden = tagsButton.hidden = true
   freshness.textContent = ''
   signinError.textContent = reason ?? ''
   signinError.hidden = reason === undefined
@@ -94,12 +97,13 @@ async function load(): Promise<void> {
     const journal = buildJournal(feed)
     // After the feed, because the account id that keys the margin comes from
     // it — and only the account the record was actually read for.
-    const margin = openMargin(accountId, await readAnnotations(accountId))
+    const [annotations, tags] = await Promise.all([readAnnotations(accountId), readTags()])
+    const margin = openMargin(accountId, annotations)
 
     only(app)
-    signout.hidden = false
+    signout.hidden = tagsButton.hidden = false
     freshness.textContent = ago(feed.fetchedAt)
-    drawPage(journal, margin)
+    drawPage(journal, margin, openVocabulary(tags))
   } catch (error) {
     if (error instanceof AuthError) askToSignIn(error.message)
     else failed(error)

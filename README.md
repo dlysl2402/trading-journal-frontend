@@ -10,10 +10,11 @@ there, rebuilds the round trips in the browser, and works every figure out from
 them. Nothing is stored here — no database, no cache, no server of its own — so
 a number on the screen cannot drift from the record beneath it.
 
-The one exception is the margin: your notes and tags. They are not a function
-of the broker's rows, so they cannot be rebuilt from them — they are written
-back to the record as you type, into the one table this page is allowed to
-write.
+The one exception is the margin: your notes, grades and tags. They are not a
+function of the broker's rows, so they cannot be rebuilt from them — they are
+written back to the record as you type, into the two tables this page is
+allowed to write: `annotations`, one row per trade, and `tags`, the vocabulary
+those tags are picked from.
 
 ## The other half
 
@@ -38,9 +39,11 @@ the one change that needs both repositories in the same breath.
 | 1 | the record | Supabase, written by the other repository |
 | 2 | the trade | `src/journal.ts` — deals grouped into round trips |
 | 3 | the figures | `src/view.ts` — net, costs, exit price, the curve; derived, never stored |
-| 4 | the margin | `src/margin.ts` — your notes and tags; kept, because nothing derives them |
+| 4 | the margin | `src/margin.ts` — your notes, grades and tags; kept, because nothing derives them |
+| 4 | the vocabulary | `src/tags.ts` — the four kinds of tag, what each is for, and the words in each |
 | — | the drawing | `src/page.ts` — the page, from the `Journal` itself |
 | — | one trade | `src/drawer.ts` — the panel a row opens, and where you write |
+| — | the words | `src/settings.ts` — the dialog where tags are named, described, ordered and retired |
 
 `src/store.ts` reads layer 1, writes layer 4 and signs you in. `src/notes.ts`
 is the formatting a note may use, read from text into blocks and written back
@@ -57,7 +60,36 @@ the boot.
 Click any row in the table. The trade opens on the right with the facts the
 table has no room for — every exit with the level that fired it and how far the
 fill landed from it, the stop as it was placed *and* as it ended — and under
-them your tags and your note.
+them your read of it: a grade, your tags, and your note.
+
+**The grade** is A, B or C for the setup as it looked at entry, never for how
+it ended; the result already has a column. Click a letter to set it and the
+lit one again to clear it.
+
+**Tags are picked, not typed.** They come in four kinds, and the drawer says
+under each title what the kind is for, so the line between them is on the page
+rather than in your head:
+
+| | answers | |
+|---|---|---|
+| Context | why this trade at all? | already true while you were still deciding — the 1h stretched, a trend day |
+| Trigger | why now, not five minutes ago? | the event on the entry bar that ended the deciding — a strong close below support |
+| Play | what shape was the trade? | the template you ran — break and continue. One per trade; picking a second replaces the first |
+| Mistake | what would you take back? | the process, never the result — chased, cut early |
+
+Every tag is a word from one vocabulary, spelled once, so that "1h
+overextended" on a Tuesday loser is the same tag as on a Friday winner and a
+filter can find them all. A tag not yet in the vocabulary is added from the
+`+ new` chip in its group without leaving the trade. **Tags** in the header
+opens the vocabulary itself: rename a tag and every trade follows, give it a
+description so it keeps its meaning, move it up or down the list, or retire it
+— it leaves the picker but stays on every trade that carries it. Nothing is
+deleted. A trade carrying a tag the vocabulary no longer names shows it apart,
+marked as such, with a click to take it off.
+
+The vocabulary lives in the `tags` table the backend's `schema.sql` creates.
+A project that predates it runs `supabase/2026-09-21-tags-and-grade.sql` there
+first; until then the page has nothing to pick from and says so.
 
 The note is an editor: bold looks bold rather than `**bold**`, and the toolbar
 above it does bold, italic, code, headings, both kinds of list and quotes.
@@ -69,7 +101,8 @@ Nothing has a save button. Leaving a field saves it, `Esc` puts the pen down
 and `Esc` again closes the trade, and `←` `→` step to the next one — which is
 what makes writing up a session's worth of trades one pass rather than forty.
 A save the record refuses leaves your words on the screen and says why, and
-holds the drawer where it is rather than carrying them off it.
+holds the drawer where it is rather than carrying them off it. A grade or a tag
+is saved by the click that sets it.
 
 **What is stored is still plain text.** The editor is a reading of it, not a
 second copy: `annotations.note` holds Markdown you could open in any editor, so
@@ -92,8 +125,9 @@ document stays inside four kinds of block and five kinds of run.
 2. **A user to sign in as.** Supabase → Authentication → Users → Add user.
    The policies in the backend's schema grant `select` on the broker's tables
    to a signed-in user and to nobody else, so the page is blank without one.
-   That same schema creates the `annotations` table this page writes; if your
-   project predates it, run that part of `supabase/schema.sql` before the
+   That same schema creates the `annotations` and `tags` tables this page
+   writes; if your project predates either, run that part of
+   `supabase/schema.sql` (or the dated migration beside it) before the
    journal will load.
    Turn off public sign-ups under Authentication → Providers unless you want
    anyone who finds the URL to be able to make themselves an account.

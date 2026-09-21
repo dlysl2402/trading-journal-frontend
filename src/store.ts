@@ -12,7 +12,7 @@
  * so never disagree with the record.
  */
 
-import type { RawAccount, RawAnnotation, RawDeal, RawFeed, RawOrder } from './rows.ts'
+import type { RawAccount, RawAnnotation, RawDeal, RawFeed, RawOrder, RawTag } from './rows.ts'
 
 const SUPABASE_URL = 'https://tmjpauncsmnepzwjucvk.supabase.co'
 
@@ -215,56 +215,75 @@ export async function readRecord(stored: Session): Promise<{ accountId: string; 
   }
 }
 
-/** Every note and tag written against one account's trades. */
+/** Every note, grade and tag written against one account's trades. */
 export async function readAnnotations(accountId: string): Promise<RawAnnotation[]> {
   const session = await live()
   return selectAll<RawAnnotation>(session, 'annotations',
-    `account_id=eq.${encodeURIComponent(accountId)}&select=position_id,note,tags,updated_at`)
+    `account_id=eq.${encodeURIComponent(accountId)}&select=position_id,note,tags,grade,updated_at`)
+}
+
+/** The whole vocabulary, retired tags included — the page decides what to show. */
+export async function readTags(): Promise<RawTag[]> {
+  const session = await live()
+  return selectAll<RawTag>(session, 'tags', 'select=slug,kind,label,description,sort,archived')
 }
 
 /**
- * Write one trade's margin, replacing whatever was there.
+ * Insert a row, or replace the one already under its key.
  *
- * An upsert on the primary key, so the first save on a trade inserts and every
- * later one updates, with no read to decide which. `updated_at` is sent rather
- * than left to the column's default, which only fires on the insert and would
- * leave every later save claiming the time the note was first written.
- *
- * This is the one write the page makes. Row-level security lets a signed-in
- * user touch this table and no other, and the broker's tables refuse an update
- * from anyone at all.
+ * An upsert, so the first save inserts and every later one updates, with no
+ * read to decide which. These are the only writes the page makes. Row-level
+ * security lets a signed-in user touch these two tables and no other, and the
+ * broker's tables refuse an update from anyone at all.
  */
-export async function saveAnnotation(
-  accountId: string, positionId: string, note: string, tags: string[],
-): Promise<Date> {
+async function upsert(table: string, key: string, row: unknown, doing: string): Promise<void> {
   const session = await live()
-  const updatedAt = new Date()
-  const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/annotations?on_conflict=account_id,position_id`, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_PUBLISHABLE_KEY,
-        Authorization: `Bearer ${session.accessToken}`,
-        'Content-Type': 'application/json',
-        Prefer: 'resolution=merge-duplicates,return=minimal',
-      },
-      body: JSON.stringify({
-        account_id: accountId,
-        position_id: positionId,
-        // An empty note is stored as null: the column is nullable, and a row
-        // of empty strings should read as nothing written rather than as a
-        // note you left blank.
-        note: note.trim() === '' ? null : note,
-        tags,
-        updated_at: updatedAt.toISOString(),
-      }),
-    })
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${key}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify(row),
+  })
   if (response.status === 401) {
     signOut()
     throw new AuthError('Your sign-in has expired.')
   }
   if (!response.ok) {
-    throw new Error(`Supabase ${response.status} saving the note: ${(await response.text()).slice(0, 300)}`)
+    throw new Error(`Supabase ${response.status} ${doing}: ${(await response.text()).slice(0, 300)}`)
   }
+}
+
+/**
+ * Write one trade's margin, replacing whatever was there.
+ *
+ * `updated_at` is sent rather than left to the column's default, which only
+ * fires on the insert and would leave every later save claiming the time the
+ * note was first written.
+ */
+export async function saveAnnotation(
+  accountId: string, positionId: string,
+  margin: { note: string; tags: string[]; grade: RawAnnotation['grade'] },
+): Promise<Date> {
+  const updatedAt = new Date()
+  await upsert('annotations', 'account_id,position_id', {
+    account_id: accountId,
+    position_id: positionId,
+    // An empty note is stored as null: the column is nullable, and a row of
+    // empty strings should read as nothing written rather than as a note you
+    // left blank.
+    note: margin.note.trim() === '' ? null : margin.note,
+    tags: margin.tags,
+    grade: margin.grade,
+    updated_at: updatedAt.toISOString(),
+  }, 'saving the note')
   return updatedAt
+}
+
+/** Add a word to the vocabulary, or change one. */
+export async function saveTag(tag: RawTag): Promise<void> {
+  await upsert('tags', 'slug', tag, 'saving the tag')
 }

@@ -159,27 +159,3 @@ export function toMarkdown(blocks: Block[]): string {
     }
   }).join('\n\n')
 }
-
-/**
- * Tags, from the comma-separated line you type them on.
- *
- * Spelling is kept as typed, because `ICT` and `ict` are one tag you wrote
- * twice rather than two, and the first spelling is the one you meant. Sorting
- * is deliberately not done here: the order you name them in is information.
- */
-export function parseTags(line: string): string[] {
-  const tags: string[] = []
-  const seen = new Set<string>()
-  for (const raw of line.split(',')) {
-    const tag = raw.trim().replace(/\s+/g, ' ')
-    if (tag === '' || seen.has(tag.toLowerCase())) continue
-    seen.add(tag.toLowerCase())
-    tags.push(tag)
-  }
-  return tags
-}
-
-/** Tags back on one line, as the editor shows them. */
-export function formatTags(tags: string[]): string {
-  return tags.join(', ')
-}

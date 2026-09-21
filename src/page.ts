@@ -25,6 +25,8 @@ import { formatters } from './format.ts'
 import type { ExitReason, Journal, Trade } from './journal.ts'
 import type { Margin } from './margin.ts'
 import { isBlank } from './margin.ts'
+import { createSettings } from './settings.ts'
+import type { Vocabulary } from './tags.ts'
 import type { EquityPoint } from './view.ts'
 import { costsOf, endedAs, equityCurve, exitPrice, netOf, stopAt } from './view.ts'
 
@@ -37,7 +39,7 @@ interface Day {
   count: number
 }
 
-export function drawPage(journal: Journal, margin: Margin): void {
+export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabulary): void {
   // Formatting, made once and handed to the drawer so both write a figure the
   // same way.
   const format = formatters(journal.account.currency)
@@ -376,28 +378,35 @@ export function drawPage(journal: Journal, margin: Margin): void {
       : margin.written() + ' of ' + plural(trades.length, 'trade') + ' written up'
   }
 
-  const drawer = createDrawer(shown.map((p) => p.trade), format, margin, (positionId) => {
+  const drawer = createDrawer(shown.map((p) => p.trade), format, margin, vocabulary, (positionId) => {
     marks.get(positionId)?.()
     countWritten()
   })
 
+  // Renaming a tag in the settings changes what every row should say.
+  const settings = createSettings(vocabulary, () => { for (const redraw of marks.values()) redraw() })
+  must('tags-button').addEventListener('click', () => settings.open())
+
   /**
-   * What you have written against a trade, at a glance: the first tag, how
-   * many more there are, and a mark when there is a note under them. Only one
-   * tag, because the column has to fit beside ten of the broker's own figures
-   * — the rest are a click away, where there is room for them.
+   * What you have written against a trade, at a glance: the grade, the play —
+   * or the first tag if it has no play — how many more tags there are, and a
+   * mark when there is a note under them. Only one tag, because the column
+   * has to fit beside ten of the broker's own figures; the rest are a click
+   * away, where there is room for them.
    */
   const noteCell = (trade: Trade): HTMLElement => {
     const cell = h('td', 'mine')
     const redraw = (): void => {
       const note = margin.get(trade.positionId)
       cell.replaceChildren()
-      const [first, ...rest] = note.tags
       // The mark keeps its place whether or not there is a note, so the column
       // reads as a line of them and the gaps are what you notice.
       cell.append(h('span', 'dot' + (note.text.trim() === '' ? ' off' : '')))
-      if (first !== undefined) cell.append(h('span', 'chip', first))
-      if (rest.length > 0) cell.append(h('span', 'chip more', '+' + rest.length))
+      if (note.grade !== null) cell.append(h('span', 'grade-mark', note.grade))
+      const play = note.tags.find((slug) => vocabulary.kindOf(slug) === 'play')
+      const first = play ?? note.tags[0]
+      if (first !== undefined) cell.append(h('span', 'chip' + (play ? ' play' : ''), vocabulary.label(first)))
+      if (note.tags.length > 1) cell.append(h('span', 'chip more', '+' + (note.tags.length - 1)))
       if (isBlank(note)) cell.append(h('span', 'invite', 'Write'))
     }
     redraw()

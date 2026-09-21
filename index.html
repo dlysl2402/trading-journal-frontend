@@ -296,26 +296,77 @@
   .saved.working { color: var(--accent); }
   .saved.failed { color: var(--down); letter-spacing: normal; line-height: 1.5; }
 
-  /* Tags: chips you click to edit as a line, with a hairline under the
-     pointer as the only hint they need. */
-  .chips {
-    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-    padding: 8px 11px; margin: 0 -12px 20px; min-height: 34px;
-    border: 1px solid transparent; cursor: text;
+  /* ── Grade and tags: a picker, not a field ──────────────────────────────
+     Each kind is a group with its question and its meaning written under
+     the title, on the page rather than in a tooltip, so the difference between
+     a context and a trigger never has to be remembered. */
+  .pick { margin-bottom: 22px; }
+  .pick-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .pick-head h4 { font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); font-weight: 500; margin: 0; }
+  .pick-asks { font-family: var(--serif); font-style: italic; font-size: 13.5px; color: var(--accent); }
+  .pick-means { font-family: var(--serif); font-size: 13px; line-height: 1.55; color: var(--dim); margin: 4px 0 10px; max-width: 60ch; }
+  .grades { display: flex; gap: 6px; }
+  .grade {
+    width: 40px; height: 34px; padding: 0; background: none; color: var(--dim);
+    border: 1px solid var(--hair-2); font: 500 14px/1 var(--serif); letter-spacing: 0; text-transform: none;
   }
-  .chips:hover { border-color: var(--hair); }
-  .chips:focus-visible { outline: none; border-color: var(--hair-2); }
-  .chip-empty { font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); border: 1px dashed var(--hair-2); padding: 3px 8px; }
-  /* The same inset as the chips it replaces, so clicking to write does not
-     shift the words sideways under the pointer. */
-  .tag-input {
-    display: block; width: calc(100% + 24px); margin: 0 -12px 20px;
-    background: var(--surface); color: var(--ink);
-    border: 1px solid var(--accent); padding: 8px 11px;
-    font: 400 13px/1.4 var(--mono);
+  .grade:hover { background: var(--surface); color: var(--ink); }
+  .grade.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  /* A chip in the drawer is a button; the same look as a chip in the table,
+     and lit in the accent when the trade carries it. */
+  button.chip { padding: 5px 10px; font-weight: 400; background: none; cursor: pointer; line-height: 1.2; }
+  button.chip:hover { background: var(--surface); color: var(--ink); }
+  button.chip.on { background: var(--accent-ghost); color: var(--accent-hi); border-color: var(--accent); }
+  button.chip.add { border-style: dashed; color: var(--faint); }
+  button.chip.add:hover { color: var(--body); }
+  button.chip.stray { border-color: var(--warn); color: var(--warn); background: none; }
+  .strays { border: 1px dashed var(--hair-2); padding: 10px 12px; }
+  .strays .pick-means { margin-top: 0; }
+  .chip-input {
+    background: var(--surface); color: var(--ink); border: 1px solid var(--accent);
+    padding: 4px 10px; width: 180px; font: 400 12px/1.4 var(--mono);
   }
-  .tag-input:focus { outline: none; }
-  .tag-input::placeholder { color: var(--faint); }
+  .chip-input:focus { outline: none; }
+  .chip-input::placeholder { color: var(--faint); }
+  .margin .note-head { margin-top: 28px; }
+  .chip.play { border-color: var(--accent); color: var(--accent-hi); }
+  .grade-mark { display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; font: 500 10px/16px var(--serif); background: var(--accent); color: var(--accent-ink); }
+
+  /* ── The vocabulary, opened up ───────────────────────────────────────── */
+  .tags-dialog {
+    width: min(760px, calc(100% - 32px)); max-height: calc(100vh - 48px);
+    padding: 0; margin: auto; background: var(--void); color: var(--body);
+    border: 1px solid var(--hair-2); box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.95);
+    font: 400 13px/1.5 var(--mono);
+  }
+  .tags-dialog::backdrop { background: rgba(8, 8, 7, 0.74); }
+  .tags-head { display: flex; align-items: flex-start; gap: 16px; padding: 18px 24px 16px; background: var(--surface); border-bottom: 1px solid var(--hair); position: sticky; top: 0; z-index: 1; }
+  .tags-head > div { flex: 1; min-width: 0; }
+  .tags-head h2 { margin-bottom: 6px; }
+  .tags-head .pick-means { margin: 0; max-width: none; }
+  .tags-head .saved { align-self: center; }
+  .tags-body { padding: 8px 24px 28px; }
+  .tag-kind { padding: 18px 0 8px; border-bottom: 1px solid var(--hair); }
+  .tag-kind:last-child { border-bottom: 0; }
+  .tag-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto auto auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .tag-row.retired .tag-field { color: var(--faint); }
+  .tag-field {
+    width: 100%; min-width: 0; padding: 7px 10px; background: var(--void-2); color: var(--ink);
+    border: 1px solid var(--hair); font: 400 12px/1.4 var(--mono);
+  }
+  .tag-field.meaning { font-family: var(--serif); font-size: 13px; }
+  .tag-field:focus { outline: none; border-color: var(--accent); }
+  .tag-field::placeholder { color: var(--faint); }
+  .tag-field.new { margin-top: 4px; border-style: dashed; }
+  .tag-row .quiet { padding: 6px 9px; }
+  .tag-row .quiet:disabled { opacity: 0.3; cursor: default; }
+  .tag-row .quiet:disabled:hover { background: none; color: var(--faint); }
+  .retired-head { margin-top: 14px; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; font-family: var(--mono); color: var(--faint); }
+  @media (max-width: 560px) {
+    .tag-row { grid-template-columns: 1fr 1fr; }
+    .tag-row .meaning { grid-column: 1 / -1; }
+  }
 
   /* The note is one surface that is always the editor — framed like a field so
      it is plain you can write in it, with the toolbar along the top. What you
@@ -360,6 +411,7 @@
     </div>
     <div class="meta">
       <span id="freshness"></span>
+      <button type="button" class="quiet" id="tags-button" hidden>Tags</button>
       <button type="button" class="quiet" id="signout" hidden>Sign out</button>
     </div>
   </header>
@@ -403,6 +455,18 @@
     </section>
   </div>
 </main>
+
+<dialog class="tags-dialog" id="tags-dialog" aria-label="Your tags">
+  <div class="tags-head">
+    <div>
+      <h2>Your tags</h2>
+      <p class="pick-means">The words a trade can be marked with, one spelling each. Rename or describe a tag here and every trade that carries it follows. Retire one and it leaves the picker but stays on the trades that have it.</p>
+    </div>
+    <span class="saved" id="tags-status"></span>
+    <button type="button" class="quiet" id="tags-close">Close</button>
+  </div>
+  <div class="tags-body" id="tags-body"></div>
+</dialog>
 
 <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
 <aside class="drawer" id="drawer" tabindex="-1" role="dialog" aria-modal="true" aria-label="Trade" hidden>

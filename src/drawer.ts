@@ -4,22 +4,23 @@
  * The table answers "what happened"; this answers "what happened, exactly, and
  * what did I think of it". It holds the facts the table has no room for — each
  * exit with the level that fired it and how far off the fill was, a stop shown
- * as it was placed *and* as it ended — and under them the margin: your tags
- * and your note.
+ * as it was placed *and* as it ended — and under them the margin: your grade,
+ * your tags and your note.
  *
- * Both fields work the same way: what you wrote is shown, you click it to
- * edit, and leaving it saves. There is no save button because there is no
- * state in which you would want one — you are either reading the note or
- * writing it, and stepping away from it means you are done.
+ * Nothing here has a save button. A grade or a tag is a click, and the click
+ * is the save. The note saves when you leave it. There is no state in which
+ * you would want to press anything else — you are either reading a trade or
+ * writing it up, and stepping away from it means you are done.
  */
 
 import { h, must } from './dom.ts'
 import type { Format } from './format.ts'
 import type { ExitFill, Level, Trade } from './journal.ts'
-import type { Margin, Note } from './margin.ts'
+import type { Margin, Note, Written } from './margin.ts'
 import { isBlank } from './margin.ts'
 import { createEditor } from './editor.ts'
-import { formatTags, parseTags } from './notes.ts'
+import type { Kind, Vocabulary } from './tags.ts'
+import { GRADES, GRADE_GUIDE, KINDS, toggled } from './tags.ts'
 import { closedAt, costsOf, endedAs, exitPrice, netOf } from './view.ts'
 
 const ENDED: Record<string, string> = { manual: 'By hand', stop: 'Stop', target: 'Target' }
@@ -40,7 +41,8 @@ interface Drawer {
  * @param saved called after a write, so the table can mark the row.
  */
 export function createDrawer(
-  trades: Trade[], format: Format, margin: Margin, saved: (positionId: string) => void,
+  trades: Trade[], format: Format, margin: Margin, vocabulary: Vocabulary,
+  saved: (positionId: string) => void,
 ): Drawer {
   const backdrop = must('drawer-backdrop')
   const panel = must('drawer')
@@ -162,7 +164,6 @@ export function createDrawer(
 
   // ── the margin ───────────────────────────────────────────────────────────
 
-
   function margins(trade: Trade): HTMLElement {
     const section = h('section', 'margin')
     const status = h('span', 'saved')
@@ -171,15 +172,15 @@ export function createDrawer(
     /**
      * One write of this trade's margin, narrated on the status line.
      *
-     * Both fields live in the same row, so either one saves both columns —
-     * which is why each reads the other's current value rather than trusting
-     * what is on the screen next to it.
+     * Every field lives in the same row, so a change to any one of them writes
+     * all of them — which is why each change starts from the note as it stands
+     * rather than from what is on the screen next to it.
      */
-    async function persist(text: string, tags: string[]): Promise<boolean> {
+    async function persist(written: Written): Promise<boolean> {
       status.className = 'saved working'
       status.textContent = 'Saving…'
       try {
-        await margin.save(trade.positionId, text, tags)
+        await margin.save(trade.positionId, written)
         saved(trade.positionId)
         status.className = 'saved'
         status.textContent = 'Saved ' + justNow(new Date())
@@ -191,72 +192,141 @@ export function createDrawer(
       }
     }
 
+    /** A click on a grade or a tag is the save; the drawer waits for it before moving on. */
+    const change = (written: Written): void => { inFlight = persist(written) }
+
     const head = h('div', 'margin-head')
-    head.append(h('h3', '', 'Your tags'), status)
+    head.append(h('h3', '', 'Your read of it'), status)
     section.append(head)
 
-    // Tags: chips you click to edit as a line, because that is what they are.
-    const chips = h('div', 'chips')
-    const chipInput = document.createElement('input')
-    chipInput.type = 'text'
-    chipInput.className = 'tag-input'
-    chipInput.placeholder = 'breakout, too early, news'
-    chipInput.hidden = true
-    const drawChips = (): void => {
-      const tags = note().tags
-      chips.replaceChildren(...tags.length > 0
-        ? tags.map((tag) => h('span', 'chip', tag))
-        : [h('span', 'chip-empty', 'Add tags')])
+    /**
+     * Each kind of thing you can mark is drawn the same way: a title, the
+     * question it answers, and — always on the page, not in a tooltip — how to
+     * tell it from the others. The words are what keep "context" meaning the
+     * same thing next month as it does today.
+     */
+    const group = (title: string, asks: string, means: string): HTMLElement => {
+      const box = h('div', 'pick')
+      const label = h('div', 'pick-head')
+      label.append(h('h4', '', title), h('span', 'pick-asks', asks))
+      box.append(label, h('p', 'pick-means', means))
+      return box
+    }
+
+    const redraws: (() => void)[] = []
+    const redraw = (): void => { for (const draw of redraws) draw() }
+
+    // Grade: three letters, one lit. The lit one clicked again clears it.
+    const grading = group(GRADE_GUIDE.title, GRADE_GUIDE.asks, GRADE_GUIDE.means)
+    const letters = h('div', 'grades')
+    for (const grade of GRADES) {
+      const button = h('button', 'grade', grade) as HTMLButtonElement
+      button.type = 'button'
+      button.addEventListener('click', () => {
+        const current = note()
+        change({ ...current, grade: current.grade === grade ? null : grade })
+        redraw()
+      })
+      redraws.push(() => button.classList.toggle('on', note().grade === grade))
+      letters.append(button)
+    }
+    grading.append(letters)
+    section.append(grading)
+
+    // Tags: every word in the vocabulary, by kind, lit when the trade carries it.
+    for (const guide of KINDS) {
+      const box = group(guide.title, guide.asks, guide.means)
+      const chips = h('div', 'chips')
+      const drawChips = (): void => {
+        const carried = note().tags
+        chips.replaceChildren()
+        for (const tag of vocabulary.of(guide.kind)) {
+          const chip = h('button', 'chip', tag.label) as HTMLButtonElement
+          chip.type = 'button'
+          if (tag.description) chip.title = tag.description
+          chip.classList.toggle('on', carried.includes(tag.slug))
+          chip.addEventListener('click', () => {
+            const current = note()
+            change({ ...current, tags: toggled(current.tags, tag, vocabulary.kindOf) })
+            redraw()
+          })
+          chips.append(chip)
+        }
+        chips.append(adder(guide.kind, chips))
+      }
+      redraws.push(drawChips)
+      box.append(chips)
+      section.append(box)
     }
 
     /*
-     * Tags are the one field with two states worth having: chips to read, a
-     * line of text to write. The note has no equivalent — its editor draws the
-     * formatting live, so reading and writing it look the same.
+     * A tag the trade carries that the vocabulary no longer names — typed in
+     * before there was a vocabulary, or removed by hand in a SQL client. Shown
+     * so it is not silently lost, and a click takes it off.
      */
-    const showChips = (): void => { chipInput.hidden = true; chips.hidden = false; drawChips() }
-    const editTags = (): void => {
-      chipInput.value = formatTags(note().tags)
-      chips.hidden = true
-      chipInput.hidden = false
-      chipInput.focus()
-    }
-
-    let savingTags = false
-    async function commitTags(): Promise<boolean> {
-      if (savingTags) return true
-      if (chipInput.value === formatTags(note().tags)) { showChips(); return true }
-      savingTags = true
-      try {
-        // A refused write leaves the line open with the words in it; the
-        // status beside it says why.
-        const ok = await persist(note().text, parseTags(chipInput.value))
-        if (ok) showChips()
-        return ok
-      } finally {
-        savingTags = false
-      }
-    }
-
-    chips.tabIndex = 0
-    chips.setAttribute('role', 'button')
-    chips.addEventListener('click', editTags)
-    chips.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); editTags() }
+    const strays = h('div', 'pick strays')
+    const strayChips = h('div', 'chips')
+    strays.append(h('p', 'pick-means', 'Not in your vocabulary. Click one to take it off the trade.'), strayChips)
+    redraws.push(() => {
+      const unknown = note().tags.filter((slug) => vocabulary.get(slug) === undefined)
+      strays.hidden = unknown.length === 0
+      strayChips.replaceChildren(...unknown.map((slug) => {
+        const chip = h('button', 'chip stray on', slug) as HTMLButtonElement
+        chip.type = 'button'
+        chip.addEventListener('click', () => {
+          const current = note()
+          change({ ...current, tags: current.tags.filter((other) => other !== slug) })
+          redraw()
+        })
+        return chip
+      }))
     })
-    chipInput.addEventListener('blur', () => { inFlight = commitTags() })
-    chipInput.addEventListener('keydown', (event) => {
-      // Escape belongs to the field before the drawer, so the first press puts
-      // the pen down and the second closes the trade. It saves rather than
-      // discards, because every other way out of the field saves and a key
-      // that quietly threw the writing away would be the one exception.
-      if (event.key === 'Escape') { event.stopPropagation(); chipInput.blur(); panel.focus(); return }
-      if (event.key === 'Enter') { event.preventDefault(); chipInput.blur() }
-    })
-    section.append(chips, chipInput)
+    section.append(strays)
+
+    /**
+     * The way a new word gets into the vocabulary without leaving the trade: a
+     * dashed chip that turns into a line to type on. Enter or leaving it
+     * creates the tag and puts it on this trade; Escape puts the chip back.
+     */
+    function adder(kind: Kind, chips: HTMLElement): HTMLElement {
+      const add = h('button', 'chip add', '+ new') as HTMLButtonElement
+      add.type = 'button'
+      add.addEventListener('click', () => {
+        const input = document.createElement('input')
+        input.type = 'text'
+        input.className = 'chip-input'
+        input.placeholder = 'Name it'
+        let done = false
+        const finish = async (create: boolean): Promise<boolean> => {
+          if (done) return true
+          done = true
+          const label = input.value.trim()
+          if (!create || label === '') { redraw(); return true }
+          try {
+            const tag = await vocabulary.add(kind, label)
+            const current = note()
+            return await persist({ ...current, tags: toggled(current.tags, tag, vocabulary.kindOf) })
+          } catch (error) {
+            status.className = 'saved failed'
+            status.textContent = error instanceof Error ? error.message : String(error)
+            return false
+          } finally {
+            redraw()
+          }
+        }
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') { event.preventDefault(); inFlight = finish(true) }
+          if (event.key === 'Escape') { event.stopPropagation(); void finish(false); panel.focus() }
+        })
+        input.addEventListener('blur', () => { inFlight = finish(true) })
+        add.replaceWith(input)
+        input.focus()
+      })
+      return add
+    }
 
     // The note: always the editor, never a box you switch into.
-    section.append(h('h3', '', 'Note'))
+    section.append(h('h3', 'note-head', 'Note'))
     const editor = createEditor(PROMPT)
     editor.set(note().text)
     section.append(editor.node)
@@ -270,7 +340,7 @@ export function createDrawer(
       if (text === note().text) return true
       writing = true
       try {
-        return await persist(text, note().tags)
+        return await persist({ ...note(), text })
       } finally {
         writing = false
       }
@@ -294,12 +364,11 @@ export function createDrawer(
       }
     })
 
-    drawChips()
+    redraw()
     const at = note().updatedAt
     if (at !== null && !isBlank(note())) status.textContent = 'Saved ' + wrote(at)
     return section
   }
-
 
   // ── the panel ────────────────────────────────────────────────────────────
 

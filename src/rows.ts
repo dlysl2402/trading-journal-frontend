@@ -86,6 +86,27 @@ export interface RawFeed {
 export interface RawAnnotation {
   position_id: string
   note: string | null
+  /** `RawTag.slug`s. At most one of them is a play; `tags.ts` keeps that rule. */
   tags: string[]
+  /** The setup as it looked at entry, never the result. Null until you grade it. */
+  grade: 'A' | 'B' | 'C' | null
   updated_at: string
+}
+
+/**
+ * One word in the vocabulary a trade may be tagged with.
+ *
+ * Kept as rows rather than typed free-hand so that a tag is spelled one way
+ * on every trade and a filter can find them all. The slug is what a trade
+ * carries and never changes; the label is what the page shows and may. A tag
+ * is archived rather than deleted so that the trades carrying it keep meaning
+ * what they meant. The four kinds are fixed in `tags.ts`.
+ */
+export interface RawTag {
+  slug: string
+  kind: 'context' | 'trigger' | 'play' | 'mistake'
+  label: string
+  description: string | null
+  sort: number
+  archived: boolean
 }
