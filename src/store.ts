@@ -23,7 +23,7 @@ const SUPABASE_URL = 'https://tmjpauncsmnepzwjucvk.supabase.co'
  * decide what it can reach. The project's *secret* key bypasses those policies
  * and must never appear in this repository.
  */
-const SUPABASE_PUBLISHABLE_KEY = ''
+const SUPABASE_PUBLISHABLE_KEY: string = 'sb_publishable_GDtBJp0-lv5dJkrE6An1oQ_Q-eTIbVJ'
 
 /** PostgREST caps a response at 1000 rows by default, so reads are walked. */
 const PAGE = 1000
