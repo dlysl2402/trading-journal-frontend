@@ -11,9 +11,20 @@
  * It takes the `Journal` as it stands in memory. There is no JSON in between:
  * the page used to be a string the backend substituted data into, and the flat
  * row that fed it was a shape that only existed to survive that trip.
+ *
+ * The margin comes in beside it rather than inside it. Layers 2 and 3 are
+ * rebuilt from the record every load so they cannot drift from it; what you
+ * wrote is the one thing on the page that is kept rather than derived, and
+ * keeping it out of the `Journal` is what stops the two being confused.
+ * `drawer.ts` owns the panel a row opens.
  */
 
+import { h, must } from './dom.ts'
+import { createDrawer } from './drawer.ts'
+import { formatters } from './format.ts'
 import type { ExitReason, Journal, Trade } from './journal.ts'
+import type { Margin } from './margin.ts'
+import { isBlank } from './margin.ts'
 import type { EquityPoint } from './view.ts'
 import { costsOf, endedAs, equityCurve, exitPrice, netOf, stopAt } from './view.ts'
 
@@ -26,38 +37,12 @@ interface Day {
   count: number
 }
 
-export function must<T extends Element = HTMLElement>(id: string): T {
-  const node = document.getElementById(id)
-  if (node === null) throw new Error(`the page has no #${id}`)
-  return node as unknown as T
-}
-
-export function drawPage(journal: Journal): void {
-  // Formatting.
+export function drawPage(journal: Journal, margin: Margin): void {
+  // Formatting, made once and handed to the drawer so both write a figure the
+  // same way.
+  const format = formatters(journal.account.currency)
   const currency = journal.account.currency
-  const money = new Intl.NumberFormat('en-AU', { style: 'currency', currency })
-  const whole = new Intl.NumberFormat('en-AU', { style: 'currency', currency, maximumFractionDigits: 0 })
-  const price = new Intl.NumberFormat('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 5 })
-  const signed = (n: number, format: Intl.NumberFormat = money) => (n > 0 ? '+' : '') + format.format(n)
-  const tone = (n: number) => (n > 0 ? 'up' : n < 0 ? 'down' : 'flat')
-  const fixed = (n: number | null) => (n === null ? '—' : n.toFixed(2))
-  const plural = (n: number, one: string, many = one + 's') => n + ' ' + (n === 1 ? one : many)
-  const day = (at: Date) => at.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-  const when = (at: Date) => at.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
-  const dateOf = (at: Date) => at.toISOString().slice(0, 10)
-  const duration = (ms: number) => {
-    const m = ms / 60000
-    return m < 60 ? Math.round(m) + ' min' : m < 1440 ? (m / 60).toFixed(1) + ' h' : (m / 1440).toFixed(1) + ' d'
-  }
-  const utc = (m: number | null) => m === null ? '' : 'UTC' + (m < 0 ? '−' : '+') + Math.floor(Math.abs(m) / 60) +
-    (Math.abs(m) % 60 ? ':' + String(Math.abs(m) % 60).padStart(2, '0') : '')
-
-  const h = (tag: string, className?: string, text?: string): HTMLElement => {
-    const node = document.createElement(tag)
-    if (className) node.className = className
-    if (text !== undefined) node.textContent = text
-    return node
-  }
+  const { day, dateOf, duration, fixed, money, plural, price, signed, tone, utc, when, whole } = format
 
   // The figures, all worked out from the trades on the page.
   const points = equityCurve(journal.trades)
@@ -379,14 +364,54 @@ export function drawPage(journal: Journal): void {
   sides.classList.add('wide')
   habits.append(sides)
 
-  // The table: every fact the page used, with no hovering required.
+  // The table: every fact the page used, with no hovering required — and the
+  // way into a trade, because a row is where you go to write about one.
+  const shown = [...trades].reverse()
+
+  /** How each row redraws its own mark, so a save does not rebuild the table. */
+  const marks = new Map<string, () => void>()
+  const tally = must('written')
+  const countWritten = (): void => {
+    tally.textContent = trades.length === 0 ? ''
+      : margin.written() + ' of ' + plural(trades.length, 'trade') + ' written up'
+  }
+
+  const drawer = createDrawer(shown.map((p) => p.trade), format, margin, (positionId) => {
+    marks.get(positionId)?.()
+    countWritten()
+  })
+
+  /**
+   * What you have written against a trade, at a glance: the first tag, how
+   * many more there are, and a mark when there is a note under them. Only one
+   * tag, because the column has to fit beside ten of the broker's own figures
+   * — the rest are a click away, where there is room for them.
+   */
+  const noteCell = (trade: Trade): HTMLElement => {
+    const cell = h('td', 'mine')
+    const redraw = (): void => {
+      const note = margin.get(trade.positionId)
+      cell.replaceChildren()
+      const [first, ...rest] = note.tags
+      // The mark keeps its place whether or not there is a note, so the column
+      // reads as a line of them and the gaps are what you notice.
+      cell.append(h('span', 'dot' + (note.text.trim() === '' ? ' off' : '')))
+      if (first !== undefined) cell.append(h('span', 'chip', first))
+      if (rest.length > 0) cell.append(h('span', 'chip more', '+' + rest.length))
+      if (isBlank(note)) cell.append(h('span', 'invite', 'Write'))
+    }
+    redraw()
+    marks.set(trade.positionId, redraw)
+    return cell
+  }
+
   const table = must<HTMLTableElement>('table')
   const head = table.createTHead().insertRow()
-  for (const [text, num] of [['Closed', 0], ['Symbol', 0], ['Side', 0], ['Lots', 1], ['Entry', 1], ['Exit', 1], ['Held', 1], ['Ended', 0], ['Stop', 1], ['Net', 1]] as [string, number][]) {
+  for (const [text, num] of [['Closed', 0], ['Symbol', 0], ['Side', 0], ['Lots', 1], ['Entry', 1], ['Exit', 1], ['Held', 1], ['Ended', 0], ['Stop', 1], ['Net', 1], ['Note', 0]] as [string, number][]) {
     head.append(h('th', num ? 'num' : '', text))
   }
   const body = table.createTBody()
-  for (const p of [...trades].reverse()) {
+  for (const p of shown) {
     const t = p.trade
     const stop = stopAt(t)
     const row = body.insertRow()
@@ -402,10 +427,20 @@ export function drawPage(journal: Journal): void {
     row.insertCell().textContent = ended[endedAs(t)]
     row.append(stop === null ? h('td', 'num none', 'none') : h('td', 'num', price.format(stop)))
     row.append(h('td', 'num ' + tone(netOf(t)), signed(netOf(t))))
+    row.append(noteCell(t))
+
+    row.classList.add('open')
+    row.dataset.position = t.positionId
+    row.tabIndex = 0
+    row.addEventListener('click', () => drawer.open(t.positionId))
+    row.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); drawer.open(t.positionId) }
+    })
   }
   if (trades.length === 0) {
     body.insertRow().insertCell().textContent = 'No closed trades yet.'
   }
+  countWritten()
 }
 
 function niceStep(rough: number): number {

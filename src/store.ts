@@ -12,7 +12,7 @@
  * so never disagree with the record.
  */
 
-import type { RawAccount, RawDeal, RawFeed, RawOrder } from './rows.ts'
+import type { RawAccount, RawAnnotation, RawDeal, RawFeed, RawOrder } from './rows.ts'
 
 const SUPABASE_URL = 'https://tmjpauncsmnepzwjucvk.supabase.co'
 
@@ -122,6 +122,20 @@ async function authorise(session: Session): Promise<Session> {
 }
 
 /**
+ * The stored session, good for the next minute.
+ *
+ * Read from storage at the moment it is needed rather than passed in, because
+ * a refresh mints a new refresh token and retires the one it used. A page left
+ * open all morning would otherwise hold the retired one and be signed out the
+ * first time it saved a note.
+ */
+async function live(): Promise<Session> {
+  const stored = storedSession()
+  if (stored === null) throw new AuthError('Your sign-in has expired.')
+  return authorise(stored)
+}
+
+/**
  * Every row matching a PostgREST filter. The response says how many rows exist
  * in total, and that — not a short page — is the signal to stop, so a lowered
  * row cap cannot truncate a read.
@@ -169,8 +183,13 @@ interface AccountRow {
  * The schema keys every row by account so a second account cannot collide with
  * the first. Nothing on this page chooses between them yet, so the account the
  * import touched most recently is the one shown.
+ *
+ * The account id comes back alongside the feed rather than inside it. It is
+ * MetaApi's id for the account, which is what the margin is keyed by, and it
+ * is not part of a fetch of the feed — putting it in `RawFeed` would make that
+ * shape a lie about the snapshot the backend writes.
  */
-export async function readFeed(stored: Session): Promise<RawFeed> {
+export async function readRecord(stored: Session): Promise<{ accountId: string; feed: RawFeed }> {
   const session = await authorise(stored)
 
   const accounts = await selectAll<AccountRow>(session, 'accounts', 'select=account_id,raw,fetched_at')
@@ -186,9 +205,66 @@ export async function readFeed(stored: Session): Promise<RawFeed> {
   ])
 
   return {
-    account: account.raw,
-    deals: deals.map((row) => row.raw),
-    orders: orders.map((row) => row.raw),
-    fetchedAt: new Date(account.fetched_at),
+    accountId: account.account_id,
+    feed: {
+      account: account.raw,
+      deals: deals.map((row) => row.raw),
+      orders: orders.map((row) => row.raw),
+      fetchedAt: new Date(account.fetched_at),
+    },
   }
+}
+
+/** Every note and tag written against one account's trades. */
+export async function readAnnotations(accountId: string): Promise<RawAnnotation[]> {
+  const session = await live()
+  return selectAll<RawAnnotation>(session, 'annotations',
+    `account_id=eq.${encodeURIComponent(accountId)}&select=position_id,note,tags,updated_at`)
+}
+
+/**
+ * Write one trade's margin, replacing whatever was there.
+ *
+ * An upsert on the primary key, so the first save on a trade inserts and every
+ * later one updates, with no read to decide which. `updated_at` is sent rather
+ * than left to the column's default, which only fires on the insert and would
+ * leave every later save claiming the time the note was first written.
+ *
+ * This is the one write the page makes. Row-level security lets a signed-in
+ * user touch this table and no other, and the broker's tables refuse an update
+ * from anyone at all.
+ */
+export async function saveAnnotation(
+  accountId: string, positionId: string, note: string, tags: string[],
+): Promise<Date> {
+  const session = await live()
+  const updatedAt = new Date()
+  const response = await fetch(
+    `${SUPABASE_URL}/rest/v1/annotations?on_conflict=account_id,position_id`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        account_id: accountId,
+        position_id: positionId,
+        // An empty note is stored as null: the column is nullable, and a row
+        // of empty strings should read as nothing written rather than as a
+        // note you left blank.
+        note: note.trim() === '' ? null : note,
+        tags,
+        updated_at: updatedAt.toISOString(),
+      }),
+    })
+  if (response.status === 401) {
+    signOut()
+    throw new AuthError('Your sign-in has expired.')
+  }
+  if (!response.ok) {
+    throw new Error(`Supabase ${response.status} saving the note: ${(await response.text()).slice(0, 300)}`)
+  }
+  return updatedAt
 }

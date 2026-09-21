@@ -71,3 +71,21 @@ export interface RawFeed {
   /** When the import last wrote the account row — what a staleness check reads. */
   fetchedAt: Date
 }
+
+/**
+ * Layer 4 — the margin: what you write next to a trade.
+ *
+ * The only table this app writes, and the only one with real columns rather
+ * than a jsonb copy of somebody else's row, because nobody else sends these.
+ * Keyed by the position the broker gave the trade, so a note stays attached to
+ * its trade without the journal having to invent an id of its own.
+ *
+ * `note` is the plain text as typed — the formatting in `notes.ts` is a
+ * reading of it, never stored.
+ */
+export interface RawAnnotation {
+  position_id: string
+  note: string | null
+  tags: string[]
+  updated_at: string
+}

@@ -6,11 +6,17 @@
  * error. Every load rebuilds the trades from scratch; nothing is cached,
  * because a cache is the one place a figure could survive a correction to the
  * record beneath it.
+ *
+ * The margin is the exception, and the only thing read here that is not
+ * derived: your notes and tags are not a function of the broker's rows, so
+ * they are read from the record as they were written.
  */
 
+import { must } from './dom.ts'
 import { buildJournal } from './journal.ts'
-import { drawPage, must } from './page.ts'
-import { AuthError, readFeed, signIn, signOut, storedSession } from './store.ts'
+import { openMargin } from './margin.ts'
+import { drawPage } from './page.ts'
+import { AuthError, readAnnotations, readRecord, signIn, signOut, storedSession } from './store.ts'
 
 const gate = must('gate')
 const status = must('status')
@@ -84,13 +90,16 @@ async function load(): Promise<void> {
   only(status)
 
   try {
-    const feed = await readFeed(session)
+    const { accountId, feed } = await readRecord(session)
     const journal = buildJournal(feed)
+    // After the feed, because the account id that keys the margin comes from
+    // it — and only the account the record was actually read for.
+    const margin = openMargin(accountId, await readAnnotations(accountId))
 
     only(app)
     signout.hidden = false
     freshness.textContent = ago(feed.fetchedAt)
-    drawPage(journal)
+    drawPage(journal, margin)
   } catch (error) {
     if (error instanceof AuthError) askToSignIn(error.message)
     else failed(error)
