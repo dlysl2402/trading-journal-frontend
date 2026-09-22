@@ -1,25 +1,27 @@
 /**
  * How every figure is written down.
  *
- * These lived inside `drawPage` as closures over the account's currency, which
- * was right while one function drew everything. The drawer needs the same
- * money, the same clock and the same idea of a held duration, and two copies
- * of `duration` would drift the first time one of them was improved — so they
- * moved here, still made per account rather than kept as globals.
+ * These lived inside `drawPage` as closures, which was right while one
+ * function drew everything. A trade tab needs the same percentage, the same
+ * clock and the same idea of a held duration, and two copies of `duration`
+ * would drift the first time one of them was improved — so they moved here.
  */
 
-export function formatters(currency: string) {
-  const money = new Intl.NumberFormat('en-AU', { style: 'currency', currency })
-  const whole = new Intl.NumberFormat('en-AU', { style: 'currency', currency, maximumFractionDigits: 0 })
+export function formatters() {
   const price = new Intl.NumberFormat('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 5 })
 
   return {
-    money,
-    whole,
     price,
 
-    /** A figure with its sign shown, because a result of zero reads differently from +0. */
-    signed: (n: number, format: Intl.NumberFormat = money) => (n > 0 ? '+' : '') + format.format(n),
+    /**
+     * A fraction of the account as a percentage — 0.0123 is "1.23%". No
+     * currency anywhere on the page: a result is what it did to the account,
+     * never a sum of money to feel something about.
+     */
+    pct: (r: number) => (100 * r).toFixed(2) + '%',
+
+    /** A return with its sign shown, because a result of zero reads differently from +0. */
+    signed: (r: number) => (r > 0 ? '+' : '') + (100 * r).toFixed(2) + '%',
 
     /** The class that colours a figure: jade above zero, coral below. */
     tone: (n: number) => (n > 0 ? 'up' : n < 0 ? 'down' : 'flat'),
@@ -37,6 +39,7 @@ export function formatters(currency: string) {
     day: (at: Date) => at.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' }),
     when: (at: Date) => at.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
     clock: (at: Date) => at.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' }),
+    time: (at: Date) => at.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
     dateOf: (at: Date) => at.toISOString().slice(0, 10),
 
     /** Minutes under an hour, then hours, then days — one figure is enough. */

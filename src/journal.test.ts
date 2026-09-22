@@ -24,12 +24,23 @@ function exit(over: Partial<RawDeal> & Pick<RawDeal, 'id'>, of: string): RawDeal
   })
 }
 
-/** A feed whose balance is whatever its deals add up to, unless told otherwise. */
+/** A deposit, at the given UTC time. */
+function deposit(id: string, amount: number, time: string): RawDeal {
+  return { id, type: 'DEAL_TYPE_BALANCE', time, brokerTime: time.slice(0, 10) + ' ' + time.slice(11, 23),
+    commission: 0, swap: 0, profit: amount }
+}
+
+/**
+ * A feed funded with 10,000 half an hour before the default deal, since a
+ * trade opened on nothing is refused, and whose balance is whatever its deals
+ * add up to unless told otherwise.
+ */
 function feed(deals: RawDeal[], orders: RawOrder[] = [], balance?: number): RawFeed {
-  const booked = deals.reduce((total, d) => total + d.profit + d.commission + d.swap, 0)
+  const funded = [deposit('0', 10_000, '2026-09-07T11:00:00.000Z'), ...deals]
+  const booked = funded.reduce((total, d) => total + d.profit + d.commission + d.swap, 0)
   return {
     account: { broker: 'Test', currency: 'AUD', login: 1, balance: balance ?? booked, investorMode: true },
-    deals, orders, fetchedAt: new Date('2026-09-21T00:00:00.000Z'),
+    deals: funded, orders, fetchedAt: new Date('2026-09-21T00:00:00.000Z'),
   }
 }
 
@@ -90,16 +101,43 @@ test('an open position is not a trade yet', () => {
   assert.deepEqual(trades, [])
 })
 
-test('deposits are summed apart from trading', () => {
-  const journal = buildJournal(feed([
-    { id: '0', type: 'DEAL_TYPE_BALANCE', time: '2026-09-07T11:00:00.000Z',
-      brokerTime: '2026-09-07 14:00:00.000', commission: 0, swap: 0, profit: 10_000 },
-    deal({ id: '1' }),
-    exit({ id: '2', profit: 10 }, '1'),
+test('a trade carries the balance it was opened on, not counting its own commission', () => {
+  const { trades } = buildJournal(feed([
+    deal({ id: '1', commission: -1 }),
+    exit({ id: '2', profit: 10, commission: -1 }, '1'),
   ]))
-  assert.equal(journal.deposited, 10_000)
-  assert.equal(journal.balance, 10_010)
-  assert.equal(journal.trades.length, 1)
+  assert.equal(trades[0]?.balanceAtEntry, 10_000)
+})
+
+test('a deposit between two trades changes what the second was opened on', () => {
+  const { trades } = buildJournal(feed([
+    deal({ id: '1' }),
+    exit({ id: '2', profit: 100 }, '1'),
+    deposit('3', 5_000, '2026-09-08T11:00:00.000Z'),
+    deal({ id: '4', time: '2026-09-08T11:30:03.000Z', brokerTime: '2026-09-08 14:30:03.000' }),
+    exit({ id: '5', time: '2026-09-08T12:30:03.000Z', brokerTime: '2026-09-08 15:30:03.000' }, '4'),
+  ]))
+  assert.deepEqual(trades.map((t) => t.balanceAtEntry), [10_000, 15_100])
+})
+
+test('two deals in the same millisecond are booked in ticket order', () => {
+  // A second deposit and the entry share a timestamp; the lower ticket came first.
+  const { trades } = buildJournal(feed([
+    deal({ id: '2' }),
+    deposit('1', 10_000, '2026-09-07T11:30:03.000Z'),
+    exit({ id: '3' }, '2'),
+  ]))
+  assert.equal(trades[0]?.balanceAtEntry, 20_000)
+})
+
+test('refuses a trade opened on nothing, which no real account allows', () => {
+  // Opened before the deposit that funds every other test.
+  assert.throws(
+    () => buildJournal(feed([
+      deal({ id: '1', time: '2026-09-07T10:00:00.000Z', brokerTime: '2026-09-07 13:00:00.000' }),
+      exit({ id: '2', profit: 10 }, '1'),
+    ])),
+    /position 1: opened on a balance of 0\.00/)
 })
 
 test('timestamps are broker server time, the clock the terminal shows', () => {
@@ -110,14 +148,14 @@ test('timestamps are broker server time, the clock the terminal shows', () => {
 test('reads the broker offset from the two clocks on a deal', () => {
   // 14:30 broker against 11:30 UTC.
   assert.equal(buildJournal(feed([deal({ id: '1' })])).serverUtcOffsetMinutes, 180)
-  assert.equal(buildJournal(feed([])).serverUtcOffsetMinutes, null)
+  assert.equal(buildJournal({ ...feed([], [], 0), deals: [] }).serverUtcOffsetMinutes, null)
 })
 
 test('refuses a history that does not add up to the broker balance', () => {
   // The failure a poll actually has: a page that never arrived.
   assert.throws(
-    () => buildJournal(feed([deal({ id: '1', profit: 100 })], [], 250)),
-    /add up to 100\.00.*balance of 250\.00.*incomplete/s)
+    () => buildJournal(feed([deal({ id: '1', profit: 100 })], [], 10_250)),
+    /add up to 10100\.00.*balance of 10250\.00.*incomplete/s)
 })
 
 test('refuses a deal type it does not model rather than treating it as a trade', () => {

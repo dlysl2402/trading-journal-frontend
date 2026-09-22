@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Trade } from './journal.ts'
-import { costsOf, endedAs, equityCurve, exitPrice, netOf, stopAt } from './view.ts'
+import { costsOf, endedAs, equityCurve, exitPrice, netOf, returnOf, stopAt } from './view.ts'
 
 /*
  * There were two tests here that no longer have anything to test. The page
@@ -12,26 +12,33 @@ import { costsOf, endedAs, equityCurve, exitPrice, netOf, stopAt } from './view.
  * neither failure is reachable. Nothing replaced them, on purpose.
  */
 
-function trade(positionId: string, net: number, opened: string, closed: string): Trade {
+function trade(positionId: string, net: number, opened: string, closed: string, balanceAtEntry = 1000): Trade {
   return {
     positionId, symbol: 'XAUUSD', side: 'buy', tag: null,
     entry: { dealId: positionId, time: new Date(opened), price: 100, volume: 1 },
     exits: [{ dealId: positionId + 'x', time: new Date(closed), price: 101, volume: 1, reason: { kind: 'manual' } }],
     stop: { initial: null, final: null }, target: { initial: null, final: null },
-    grossProfit: net + 1, commission: -1, swap: 0,
+    grossProfit: net + 1, commission: -1, swap: 0, balanceAtEntry,
   }
 }
 
-// Given out of order, so the curve has to sort them itself.
+// Given out of order, so the curve has to sort them itself. The third trade
+// was opened on twice the balance, so its 15 counts half as much as 15 would
+// have on the first day.
 const trades = [
-  trade('2', -5, '2026-09-08T10:00:00Z', '2026-09-08T11:00:00Z'),
-  trade('1', 20, '2026-09-07T10:00:00Z', '2026-09-07T11:00:00Z'),
-  trade('3', 7.5, '2026-09-09T10:00:00Z', '2026-09-09T11:00:00Z'),
+  trade('2', -50, '2026-09-08T10:00:00Z', '2026-09-08T11:00:00Z'),
+  trade('1', 100, '2026-09-07T10:00:00Z', '2026-09-07T11:00:00Z'),
+  trade('3', 15, '2026-09-09T10:00:00Z', '2026-09-09T11:00:00Z', 2000),
 ]
 
-test('the curve starts at zero when the first trade opened, then steps once per trade', () => {
+test('a return is the net against the balance the trade was sized on', () => {
+  assert.equal(returnOf(trades[1]!), 0.1)
+  assert.equal(returnOf(trades[2]!), 0.0075)
+})
+
+test('the curve starts at one when the first trade opened, then compounds once per trade', () => {
   const curve = equityCurve(trades)
-  assert.deepEqual(curve.map((p) => p.equity), [0, 20, 15, 22.5])
+  assert.deepEqual(curve.map((p) => Number(p.growth.toFixed(6))), [1, 1.1, 1.045, 1.052838])
   assert.equal(curve[0]?.time.toISOString(), '2026-09-07T10:00:00.000Z')
   assert.equal(curve[0]?.trade, null)
   assert.deepEqual(curve.slice(1).map((p) => p.trade?.positionId), ['1', '2', '3'])
@@ -43,7 +50,7 @@ test('no trades means no curve', () => {
 
 test('net is gross less what the trade cost to place and hold', () => {
   const one = trades[1]!
-  assert.equal(netOf(one), 20)
+  assert.equal(netOf(one), 100)
   assert.equal(costsOf(one), -1)
   assert.equal(stopAt(one), null)
   assert.equal(endedAs(one), 'manual')

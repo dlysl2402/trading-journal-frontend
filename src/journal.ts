@@ -87,15 +87,19 @@ export interface Trade {
   grossProfit: number
   commission: number
   swap: number
+  /**
+   * What the account held the instant before the entry filled: every deal
+   * booked earlier, deposits included, and not this entry's own commission.
+   * It is the balance the position was sized against, and so the only fair
+   * denominator for what the trade returned — a 100 win on 10,000 and the
+   * same 100 on 32,000 are different trades.
+   */
+  balanceAtEntry: number
 }
 
 /** The account as of one fetch. */
 export interface Journal {
   account: { id: string; broker: string; currency: string }
-  /** What the broker says the account holds right now. */
-  balance: number
-  /** Deposits less withdrawals. */
-  deposited: number
   /**
    * How far ahead of UTC the broker's clock runs, from the latest deal. One
    * deal rather than an average: brokers shift with daylight saving, so the
@@ -155,7 +159,9 @@ function serverTime(deal: RawDeal): Date {
   return time
 }
 
-const byTime = (a: RawDeal, b: RawDeal) => a.time.localeCompare(b.time)
+/** Oldest first; two deals in the same millisecond go in ticket order. */
+const byTime = (a: RawDeal, b: RawDeal) =>
+  a.time.localeCompare(b.time) || Number(a.id) - Number(b.id)
 
 function serverUtcOffsetMinutes(deals: RawDeal[]): number | null {
   const latest = deals.toSorted(byTime).at(-1)
@@ -196,6 +202,7 @@ function tagOf(order: RawOrder | undefined): string | null {
 /** One position's deals, oldest first, as a trade — or `null` if not closed yet. */
 function toTrade(
   positionId: string, deals: FillDeal[], orders: Map<string, RawOrder>,
+  balanceBefore: Map<string, number>,
 ): Trade | null {
   const [entry, ...more] = deals.filter((deal) => deal.entryType === 'DEAL_ENTRY_IN')
   if (more.length > 0) {
@@ -210,6 +217,11 @@ function toTrade(
   if (entry === undefined || closed < entry.volume - TOLERANCE) return null
   if (closed > entry.volume + TOLERANCE) {
     throw new Error(`position ${positionId}: closed ${closed} of ${entry.volume} lots`)
+  }
+
+  const balanceAtEntry = balanceBefore.get(entry.id)!
+  if (balanceAtEntry <= 0) {
+    throw new Error(`position ${positionId}: opened on a balance of ${balanceAtEntry.toFixed(2)}`)
   }
 
   const order = orders.get(entry.orderId)
@@ -229,7 +241,25 @@ function toTrade(
     grossProfit: sum((deal) => deal.profit),
     commission: sum((deal) => deal.commission),
     swap: sum((deal) => deal.swap),
+    balanceAtEntry,
   }
+}
+
+/**
+ * The balance the instant before each deal, by deal id.
+ *
+ * The record is the whole ledger — `reconcileBalance` has just proved that
+ * every deal sums to what the broker holds now — so the balance at any
+ * earlier moment is the same sum stopped short.
+ */
+function balancesBefore(deals: RawDeal[]): Map<string, number> {
+  const before = new Map<string, number>()
+  let balance = 0
+  for (const deal of deals.toSorted(byTime)) {
+    before.set(deal.id, balance)
+    balance += deal.profit + deal.commission + deal.swap
+  }
+  return before
 }
 
 /**
@@ -254,20 +284,17 @@ export function buildJournal(feed: RawFeed): Journal {
   reconcileBalance(feed)
 
   const orders = new Map(feed.orders.map((order) => [order.id, order]))
+  const before = balancesBefore(feed.deals)
   const fills = feed.deals.filter(isFill).toSorted(byTime)
   const trades: Trade[] = []
   for (const [positionId, deals] of Map.groupBy(fills, (deal) => deal.positionId)) {
-    const trade = toTrade(positionId, deals, orders)
+    const trade = toTrade(positionId, deals, orders, before)
     if (trade !== null) trades.push(trade)
   }
 
   const { account } = feed
   return {
     account: { id: String(account.login), broker: account.broker, currency: account.currency },
-    balance: account.balance,
-    deposited: feed.deals
-      .filter((deal) => deal.type === 'DEAL_TYPE_BALANCE')
-      .reduce((total, deal) => total + deal.profit, 0),
     serverUtcOffsetMinutes: serverUtcOffsetMinutes(feed.deals),
     trades,
   }

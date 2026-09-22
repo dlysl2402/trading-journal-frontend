@@ -1,14 +1,16 @@
 # trading-journal-frontend
 
-The journal you look at. One page: net P&L, the equity curve, a calendar of
-days, what the broker's own fields say about how the trades were run, and every
+The journal you look at. One page: the net return, the growth curve, a calendar
+of days, what the broker's own fields say about how the trades were run, and every
 closed trade in a table — and, behind any row you click, that trade opened up
-with somewhere to write about it.
+in a tab of its own, with somewhere to write about it.
 
 It is a static page. It signs in to Supabase, reads the record the import keeps
 there, rebuilds the round trips in the browser, and works every figure out from
 them. Nothing is stored here — no database, no cache, no server of its own — so
-a number on the screen cannot drift from the record beneath it.
+a number on the screen cannot drift from the record beneath it. The one thing
+the browser keeps is which tabs you had open, in `sessionStorage`, so a reload
+does not close them; that is where you were looking, not a figure.
 
 The one exception is the margin: your notes, grades and tags. They are not a
 function of the broker's rows, so they cannot be rebuilt from them — they are
@@ -42,7 +44,8 @@ the one change that needs both repositories in the same breath.
 | 4 | the margin | `src/margin.ts` — your notes, grades and tags; kept, because nothing derives them |
 | 4 | the vocabulary | `src/tags.ts` — the four kinds of tag, what each is for, and the words in each |
 | — | the drawing | `src/page.ts` — the page, from the `Journal` itself |
-| — | one trade | `src/drawer.ts` — the panel a row opens, and where you write |
+| — | the tabs | `src/tabs.ts` — the overview and one tab per opened trade, and the address in the URL |
+| — | one trade | `src/trade.ts` — a trade drawn out in full, and where you write |
 | — | the words | `src/settings.ts` — the dialog where tags are named, described, ordered and retired |
 
 `src/store.ts` reads layer 1, writes layer 4 and signs you in. `src/notes.ts`
@@ -57,18 +60,25 @@ the boot.
 
 ## Writing in it
 
-Click any row in the table. The trade opens on the right with the facts the
-table has no room for — every exit with the level that fired it and how far the
-fill landed from it, the stop as it was placed *and* as it ended — and under
-them your read of it: a grade, your tags, and your note.
+Click any row in the table. The trade opens in a tab of its own, beside the
+overview: one line of what it was, the four prices — with the stop as it was
+placed *and* as it ended, and how far a fill landed from the level that fired
+it — and under them your read of it: a grade, your tags, and your note. A
+trade closed in pieces lists each piece; nothing else is said twice. Open as many as you like; the strip under the header switches
+between them, and the overview comes back scrolled to where you left it. A
+trade already open goes to its tab rather than opening twice. The date in a
+row is a link to the trade's address (`#trade/<position id>`), so a ⌘-click or
+a middle click opens it in a browser tab instead, and the address can be
+bookmarked.
 
 **The grade** is A, B or C for the setup as it looked at entry, never for how
 it ended; the result already has a column. Click a letter to set it and the
 lit one again to clear it.
 
-**Tags are picked, not typed.** They come in four kinds, and the drawer says
-under each title what the kind is for, so the line between them is on the page
-rather than in your head:
+**Tags are picked, not typed.** They come in four kinds. On a trade each is
+one row, its name and its words; hover the name for what the kind is for, and
+**Tags** in the header writes it out in full, so the line between them is kept
+on a page rather than in your head:
 
 | | answers | |
 |---|---|---|
@@ -80,7 +90,7 @@ rather than in your head:
 Every tag is a word from one vocabulary, spelled once, so that "1h
 overextended" on a Tuesday loser is the same tag as on a Friday winner and a
 filter can find them all. A tag not yet in the vocabulary is added from the
-`+ new` chip in its group without leaving the trade. **Tags** in the header
+`+` chip at the end of its row without leaving the trade. **Tags** in the header
 opens the vocabulary itself: rename a tag and every trade follows, give it a
 description so it keeps its meaning, move it up or down the list, or retire it
 — it leaves the picker but stays on every trade that carries it. Nothing is
@@ -98,10 +108,10 @@ line turns into the thing it means. Tags sit above it as chips you click to
 edit as a line.
 
 Nothing has a save button. Leaving a field saves it, `Esc` puts the pen down
-and `Esc` again closes the trade, and `←` `→` step to the next one — which is
-what makes writing up a session's worth of trades one pass rather than forty.
-A save the record refuses leaves your words on the screen and says why, and
-holds the drawer where it is rather than carrying them off it. A grade or a tag
+and `Esc` again closes the tab, and `←` `→` move the tab to the next trade —
+which is what makes writing up a session's worth of trades one pass rather
+than forty. A save the record refuses leaves your words on the screen and says
+why, and holds the tab open rather than carrying them off it. A grade or a tag
 is saved by the click that sets it.
 
 **What is stored is still plain text.** The editor is a reading of it, not a

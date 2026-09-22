@@ -16,11 +16,11 @@
  * rebuilt from the record every load so they cannot drift from it; what you
  * wrote is the one thing on the page that is kept rather than derived, and
  * keeping it out of the `Journal` is what stops the two being confused.
- * `drawer.ts` owns the panel a row opens.
+ * `tabs.ts` owns the tab a row opens, and `trade.ts` what is drawn in it.
  */
 
 import { h, must } from './dom.ts'
-import { createDrawer } from './drawer.ts'
+import { createTabs } from './tabs.ts'
 import { formatters } from './format.ts'
 import type { ExitReason, Journal, Trade } from './journal.ts'
 import type { Margin } from './margin.ts'
@@ -28,7 +28,7 @@ import { isBlank } from './margin.ts'
 import { createSettings } from './settings.ts'
 import type { Vocabulary } from './tags.ts'
 import type { EquityPoint } from './view.ts'
-import { costsOf, endedAs, equityCurve, exitPrice, netOf, stopAt } from './view.ts'
+import { costsOf, endedAs, equityCurve, exitPrice, returnOf, stopAt } from './view.ts'
 
 /** A point that is a closed trade, rather than the zero the curve starts on. */
 type ClosedPoint = EquityPoint & { trade: Trade }
@@ -40,11 +40,10 @@ interface Day {
 }
 
 export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabulary): void {
-  // Formatting, made once and handed to the drawer so both write a figure the
-  // same way.
-  const format = formatters(journal.account.currency)
-  const currency = journal.account.currency
-  const { day, dateOf, duration, fixed, money, plural, price, signed, tone, utc, when, whole } = format
+  // Formatting, made once and handed to the trade panels so both write a
+  // figure the same way.
+  const format = formatters()
+  const { day, dateOf, duration, fixed, pct, plural, price, signed, tone, utc, when } = format
 
   // The figures, all worked out from the trades on the page.
   const points = equityCurve(journal.trades)
@@ -52,7 +51,9 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
   const trades = points.filter((p): p is ClosedPoint => p.trade !== null)
   const sum = <T>(list: T[], pick: (item: T) => number) =>
     list.reduce((total, item) => total + pick(item), 0)
-  const result = (p: ClosedPoint) => netOf(p.trade)
+  // Every figure is a return: what a trade did to the account it was sized
+  // against, as a fraction. Money appears nowhere on the page.
+  const result = (p: ClosedPoint) => returnOf(p.trade)
   const ratio = (a: number, b: number) => (b === 0 ? null : a / b)
   const median = (values: number[]): number | null => {
     if (values.length === 0) return null
@@ -61,34 +62,39 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
     return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
   }
 
-  const winners = trades.filter((p) => netOf(p.trade) > 0)
-  const losers = trades.filter((p) => netOf(p.trade) < 0)
-  const net = sum(trades, result)
-  const costs = sum(trades, (p) => costsOf(p.trade))
+  const winners = trades.filter((p) => result(p) > 0)
+  const losers = trades.filter((p) => result(p) < 0)
+  // Where the account stands: every return compounded, as the curve draws it.
+  const net = (last?.growth ?? 1) - 1
   const won = sum(winners, result), lost = -sum(losers, result)
   const winRate = ratio(winners.length, trades.length)
   const profitFactor = ratio(won, lost)
   const avgWin = ratio(won, winners.length), avgLoss = ratio(lost, losers.length)
   const payoff = avgWin !== null && avgLoss !== null ? ratio(avgWin, avgLoss) : null
-  const expectancy = ratio(net, trades.length)
+  const expectancy = ratio(sum(trades, result), trades.length)
+  // The one place costs are named: what share of gross P&L they took, in
+  // total. Per trade the same figure only says how small the move was.
+  const gross = sum(trades, (p) => p.trade.grossProfit)
+  const costShare = ratio(-sum(trades, (p) => costsOf(p.trade)), Math.abs(gross))
 
   const days: Day[] = [...Map.groupBy(trades, (p) => dateOf(p.time))]
     .map(([date, list]) => ({ date, net: sum(list, result), count: list.length }))
     .sort((a, b) => a.date.localeCompare(b.date))
   const greenDays = days.filter((d) => d.net > 0).length
 
-  // Deepest fall from a high on the curve, which starts at zero.
-  let peak = 0, peakAt = first?.time ?? new Date(0)
+  // Deepest fall from a high on the curve, as a share of that high.
+  let peak = 1, peakAt = first?.time ?? new Date(0)
   let drawdown = { amount: 0, from: peakAt, to: peakAt }
   for (const p of points) {
-    if (p.equity > peak) { peak = p.equity; peakAt = p.time }
-    if (peak - p.equity > drawdown.amount) drawdown = { amount: peak - p.equity, from: peakAt, to: p.time }
+    if (p.growth > peak) { peak = p.growth; peakAt = p.time }
+    const fall = 1 - p.growth / peak
+    if (fall > drawdown.amount) drawdown = { amount: fall, from: peakAt, to: p.time }
   }
 
   let streak: { kind: 'win' | 'loss'; length: number } | null = null
   let longestWin = 0, longestLoss = 0
   for (const p of trades) {
-    const value = netOf(p.trade)
+    const value = result(p)
     const kind = value > 0 ? 'win' : value < 0 ? 'loss' : null
     if (kind === null) { streak = null; continue }
     streak = streak && streak.kind === kind ? { kind, length: streak.length + 1 } : { kind, length: 1 }
@@ -100,26 +106,20 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
 
   // Header.
   must('sub').textContent = [
-    journal.account.id, journal.account.broker, currency,
+    journal.account.id, journal.account.broker, journal.account.currency,
     trades.length ? day(first!.time) + ' – ' + day(last!.time) + ' · server time ' + utc(journal.serverUtcOffsetMinutes) : 'no closed trades yet',
   ].join(' · ')
 
-  // Hero: net P&L, with what gives it scale.
+  // Hero: where the account stands, from trading alone.
   const tiles = must('tiles')
   const hero = h('div', 'tile hero')
   const heroText = h('div')
-  heroText.append(h('div', 'label', 'Net P&L'), h('div', 'value', signed(net)))
-  if (journal.deposited > 0) {
-    const pct = 100 * net / journal.deposited
-    heroText.append(h('div', 'delta ' + tone(net), (pct > 0 ? '+' : '') + pct.toFixed(2) + '% on ' + whole.format(journal.deposited) + ' deposited'))
-  }
+  heroText.append(h('div', 'label', 'Net'), h('div', 'value ' + tone(net), signed(net)))
   hero.append(heroText)
   const readout = h('dl', 'readout')
   for (const [key, text] of [
     ['Trades', trades.length + ' over ' + plural(days.length, 'day')],
-    ['Gross', signed(net - costs)],
-    ['Costs', signed(costs)],
-    ['Balance', money.format(journal.balance)],
+    ['Costs', costShare === null ? '—' : pct(costShare) + ' of gross'],
   ]) readout.append(h('dt', '', key), h('dd', '', text))
   hero.append(readout)
   tiles.append(hero)
@@ -136,7 +136,7 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
       plural(winners.length, 'win') + ' of ' + plural(trades.length, 'trade') + ' · ' + greenDays + ' of ' + plural(days.length, 'day') + ' green'],
     ['Profit factor',
       fixed(profitFactor), profitFactor === null ? 'flat' : tone(profitFactor - 1),
-      profitFactor === null ? 'needs a win and a loss' : whole.format(won) + ' won for ' + whole.format(lost) + ' lost'],
+      profitFactor === null ? 'needs a win and a loss' : pct(won) + ' won for ' + pct(lost) + ' lost'],
     ['Avg win / loss',
       fixed(payoff), payoff === null ? 'flat' : tone(payoff - 1),
       payoff === null ? 'needs a win and a loss' : signed(avgWin!) + ' against ' + signed(-avgLoss!)],
@@ -144,10 +144,8 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
       expectancy === null ? '—' : signed(expectancy), expectancy === null ? 'flat' : tone(expectancy),
       'per trade, after costs'],
     ['Max drawdown',
-      drawdown.amount ? '−' + money.format(drawdown.amount) : money.format(0), drawdown.amount ? 'down' : 'flat',
-      drawdown.amount
-        ? (journal.deposited > 0 ? (100 * drawdown.amount / journal.deposited).toFixed(2) + '% of deposits · ' : '') + day(drawdown.from) + ' – ' + day(drawdown.to)
-        : 'no high given back yet'],
+      drawdown.amount ? '−' + pct(drawdown.amount) : pct(0), drawdown.amount ? 'down' : 'flat',
+      drawdown.amount ? 'from the high · ' + day(drawdown.from) + ' – ' + day(drawdown.to) : 'no high given back yet'],
     ['Streak',
       streak ? plural(streak.length, streak.kind, streak.kind === 'win' ? 'wins' : 'losses') : '—',
       streak ? (streak.kind === 'win' ? 'up' : 'down') : 'flat',
@@ -155,7 +153,10 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
   ]
   for (const [label, value, valueTone, note] of figures) tiles.append(tile(label, value, valueTone, note))
 
-  // The chart: cumulative net P&L against time, one point per closed trade.
+  // The chart: growth against time, one point per closed trade, on a log
+  // axis so that equal heights are equal percentages wherever they fall.
+  // Everything is worked in percent from the start, which the axis is
+  // labelled in; `y` takes the log on the way to a pixel.
   const W = 880, H = 320, M = { top: 16, right: 96, bottom: 32, left: 64 }
   const svg = must<SVGSVGElement>('chart')
   const NS = 'http://www.w3.org/2000/svg'
@@ -170,12 +171,14 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
 
   if (points.length > 1) {
     const t0 = first!.time.getTime(), t1 = last!.time.getTime()
-    const lo = Math.min(0, ...points.map((p) => p.equity))
-    const hi = Math.max(0, ...points.map((p) => p.equity))
+    const from = (p: EquityPoint) => p.growth - 1
+    const lo = Math.min(0, ...points.map(from))
+    const hi = Math.max(0, ...points.map(from))
     const step = niceStep((hi - lo) / 4)
     const yMin = Math.floor(lo / step) * step, yMax = Math.ceil(hi / step) * step
+    const ln = (v: number) => Math.log(1 + v)
     const x = (t: number) => M.left + (t - t0) / (t1 - t0) * (W - M.left - M.right)
-    const y = (v: number) => H - M.bottom - (v - yMin) / (yMax - yMin) * (H - M.top - M.bottom)
+    const y = (v: number) => H - M.bottom - (ln(v) - ln(yMin)) / (ln(yMax) - ln(yMin)) * (H - M.top - M.bottom)
 
     // A wash under the line that fades to nothing at the baseline, in either direction.
     const defs = el('defs')
@@ -187,8 +190,8 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
 
     const grid = el('g', { class: 'grid' })
     for (let v = yMin; v <= yMax + step / 2; v += step) {
-      if (v !== 0) el('line', { x1: M.left, x2: W - M.right, y1: y(v), y2: y(v) }, grid)
-      el('text', { class: 'tick', x: M.left - 10, y: y(v) + 4, 'text-anchor': 'end' }, svg).textContent = whole.format(v)
+      if (Math.abs(v) > step / 2) el('line', { x1: M.left, x2: W - M.right, y1: y(v), y2: y(v) }, grid)
+      el('text', { class: 'tick', x: M.left - 10, y: y(v) + 4, 'text-anchor': 'end' }, svg).textContent = signed(v)
     }
     el('line', { class: 'baseline', x1: M.left, x2: W - M.right, y1: y(0), y2: y(0) })
 
@@ -199,13 +202,13 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
       el('text', { class: 'tick', x: x(t), y: H - M.bottom + 20, 'text-anchor': 'middle' }).textContent = day(new Date(t))
     }
 
-    const path = points.map((p, i) => (i ? 'L' : 'M') + x(p.time.getTime()).toFixed(1) + ' ' + y(p.equity).toFixed(1)).join(' ')
+    const path = points.map((p, i) => (i ? 'L' : 'M') + x(p.time.getTime()).toFixed(1) + ' ' + y(from(p)).toFixed(1)).join(' ')
     el('path', { class: 'area draw', fill: 'url(#wash)', d: path + ' L' + x(t1).toFixed(1) + ' ' + y(0).toFixed(1) + ' L' + x(t0).toFixed(1) + ' ' + y(0).toFixed(1) + ' Z' })
     const line = el('path', { class: 'line draw', d: path })
     line.style.setProperty('--length', String(line.getTotalLength()))
-    el('circle', { class: 'halo draw', cx: x(t1), cy: y(last!.equity), r: 9 })
-    el('circle', { class: 'end draw', cx: x(t1), cy: y(last!.equity), r: 4.5 })
-    el('text', { class: 'end-label draw', x: x(t1) + 14, y: y(last!.equity) + 4 }).textContent = signed(last!.equity)
+    el('circle', { class: 'halo draw', cx: x(t1), cy: y(from(last!)), r: 9 })
+    el('circle', { class: 'end draw', cx: x(t1), cy: y(from(last!)), r: 4.5 })
+    el('text', { class: 'end-label draw', x: x(t1) + 14, y: y(from(last!)) + 4 }).textContent = signed(from(last!))
 
     // Hover: a crosshair that snaps to the nearest closed trade.
     const crosshair = el('line', { class: 'crosshair', y1: M.top, y2: H - M.bottom })
@@ -214,15 +217,15 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
     const card = svg.parentElement!
 
     const show = (p: EquityPoint): void => {
-      const px = x(p.time.getTime()), py = y(p.equity)
+      const px = x(p.time.getTime()), py = y(from(p))
       crosshair.setAttribute('x1', String(px)); crosshair.setAttribute('x2', String(px))
       focus.setAttribute('cx', String(px)); focus.setAttribute('cy', String(py))
       crosshair.style.display = focus.style.display = 'block'
 
-      tooltip.replaceChildren(h('b', '', signed(p.equity)))
+      tooltip.replaceChildren(h('b', '', signed(from(p))))
       if (p.trade) {
         const detail = h('span', '', when(p.time) + ' · ' + p.trade.symbol + ' ' + p.trade.side + ' ')
-        detail.append(h('span', 'net ' + tone(netOf(p.trade)), signed(netOf(p.trade))))
+        detail.append(h('span', 'net ' + tone(returnOf(p.trade)), signed(returnOf(p.trade))))
         tooltip.append(detail)
       } else {
         tooltip.append(h('span', '', when(p.time) + ' · first trade opened'))
@@ -266,13 +269,13 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
     const dayCell = (d: Day | undefined) => {
       const cell = h('div', 'cal-cell ' + (d ? tone(d.net) : 'idle'))
       if (d) {
-        cell.append(h('span', 'cal-n', signed(d.net, whole)), h('span', 'cal-c', plural(d.count, 'trade')))
+        cell.append(h('span', 'cal-n', signed(d.net)), h('span', 'cal-c', plural(d.count, 'trade')))
       }
       return cell
     }
     const weekCell = (week: { net: number; count: number }) => {
       const cell = h('div', 'cal-cell week ' + (week.count ? tone(week.net) : 'idle'))
-      if (week.count) cell.append(h('span', 'cal-n', signed(week.net, whole)), h('span', 'cal-c', plural(week.count, 'trade')))
+      if (week.count) cell.append(h('span', 'cal-n', signed(week.net)), h('span', 'cal-c', plural(week.count, 'trade')))
       return cell
     }
 
@@ -315,7 +318,7 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
   // Habits: what the broker's own fields say about how the trades were run.
   const habits = must('habits')
   const bucket = (list: ClosedPoint[]) =>
-    ({ count: list.length, net: sum(list, result), wins: list.filter((p) => netOf(p.trade) > 0).length })
+    ({ count: list.length, net: sum(list, result), wins: list.filter((p) => result(p) > 0).length })
   const pair = (label: string, a: [string, string, string], b: [string, string, string]) => {
     const node = h('div', 'tile')
     node.append(h('div', 'label', label))
@@ -361,8 +364,8 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
   const longs = bucket(trades.filter((p) => p.trade.side === 'buy'))
   const shorts = bucket(trades.filter((p) => p.trade.side === 'sell'))
   const sides = pair('Long / short',
-    [signed(longs.net, whole), tone(longs.net), plural(longs.count, 'long') + ', ' + plural(longs.wins, 'win')],
-    [signed(shorts.net, whole), tone(shorts.net), plural(shorts.count, 'short') + ', ' + plural(shorts.wins, 'win')])
+    [signed(longs.net), tone(longs.net), plural(longs.count, 'long') + ', ' + plural(longs.wins, 'win')],
+    [signed(shorts.net), tone(shorts.net), plural(shorts.count, 'short') + ', ' + plural(shorts.wins, 'win')])
   sides.classList.add('wide')
   habits.append(sides)
 
@@ -378,13 +381,17 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
       : margin.written() + ' of ' + plural(trades.length, 'trade') + ' written up'
   }
 
-  const drawer = createDrawer(shown.map((p) => p.trade), format, margin, vocabulary, (positionId) => {
+  const tabs = createTabs(shown.map((p) => p.trade), format, margin, vocabulary, (positionId) => {
     marks.get(positionId)?.()
     countWritten()
   })
 
-  // Renaming a tag in the settings changes what every row should say.
-  const settings = createSettings(vocabulary, () => { for (const redraw of marks.values()) redraw() })
+  // Renaming a tag in the settings changes what every row should say, and
+  // what every open trade offers to pick from.
+  const settings = createSettings(vocabulary, () => {
+    for (const redraw of marks.values()) redraw()
+    tabs.refresh()
+  })
   must('tags-button').addEventListener('click', () => settings.open())
 
   /**
@@ -424,7 +431,16 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
     const t = p.trade
     const stop = stopAt(t)
     const row = body.insertRow()
-    row.insertCell().textContent = when(p.time)
+    // The date is a link to the trade's own address, so a middle click or a
+    // ⌘-click opens it in a browser tab; a plain click opens it in one here.
+    const link = h('a', 'trade-link', when(p.time)) as HTMLAnchorElement
+    link.href = '#trade/' + encodeURIComponent(t.positionId)
+    link.addEventListener('click', (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
+      event.preventDefault()
+      tabs.open(t.positionId)
+    })
+    row.insertCell().append(link)
     const symbol = row.insertCell()
     symbol.textContent = t.symbol
     if (t.tag) symbol.append(h('span', 'tag', t.tag))
@@ -435,15 +451,19 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
     row.append(h('td', 'num', duration(hold(p))))
     row.insertCell().textContent = ended[endedAs(t)]
     row.append(stop === null ? h('td', 'num none', 'none') : h('td', 'num', price.format(stop)))
-    row.append(h('td', 'num ' + tone(netOf(t)), signed(netOf(t))))
+    row.append(h('td', 'num ' + tone(result(p)), signed(result(p))))
     row.append(noteCell(t))
 
     row.classList.add('open')
     row.dataset.position = t.positionId
     row.tabIndex = 0
-    row.addEventListener('click', () => drawer.open(t.positionId))
+    row.addEventListener('click', (event) => {
+      // The link handles its own clicks, modifier keys included.
+      if (event.target instanceof Element && event.target.closest('a') !== null) return
+      tabs.open(t.positionId)
+    })
     row.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') { event.preventDefault(); drawer.open(t.positionId) }
+      if (event.key === 'Enter' && event.target === row) { event.preventDefault(); tabs.open(t.positionId) }
     })
   }
   if (trades.length === 0) {

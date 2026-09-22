@@ -14,17 +14,26 @@
 
 import type { ExitReason, Trade } from './journal.ts'
 
-/** One step of the curve: the running net result after a trade closed. */
+/** One step of the curve: where the account stood after a trade closed. */
 export interface EquityPoint {
   time: Date
-  /** Net P&L of every trade closed so far. Deposits are not included. */
-  equity: number
+  /**
+   * Growth of one unit put in before the first trade and left alone: every
+   * return so far compounded, so 1.02 is up two percent. Deposits do not move
+   * it; only trading does.
+   */
+  growth: number
   trade: Trade | null
 }
 
 /** Gross profit less what it cost to place and hold. */
 export function netOf(trade: Trade): number {
   return trade.grossProfit + trade.commission + trade.swap
+}
+
+/** What the trade did to the account it was sized against, as a fraction: 0.01 is one percent. */
+export function returnOf(trade: Trade): number {
+  return netOf(trade) / trade.balanceAtEntry
 }
 
 /** Commission plus swap. Always negative or zero. */
@@ -64,24 +73,28 @@ export function stopAt(trade: Trade): number | null {
 }
 
 /**
- * Net P&L over time, one point per closed trade, starting at zero when the
+ * Growth over time, one point per closed trade, starting at one when the
  * first trade was opened so the line begins on the baseline.
  *
- * Trading results rather than balance, on purpose: the sample account took
- * four deposits totalling 32,000 against a few hundred of P&L, so a balance
- * curve is four steps with the trading invisible on top of them.
+ * Returns rather than money, on purpose: the sample account took four
+ * deposits totalling 32,000 against a few hundred of P&L, so a balance curve
+ * is four steps with the trading invisible on top of them — and a win on the
+ * first 10,000 should stand as tall as the same-sized win on 32,000. Each
+ * trade's return is compounded in the order the trades closed, which is what
+ * lets the page draw the curve on a log axis, where equal heights are equal
+ * percentages.
  */
 export function equityCurve(trades: Trade[]): EquityPoint[] {
   if (trades.length === 0) return []
   const byClose = [...trades].sort((a, b) => closedAt(a).getTime() - closedAt(b).getTime())
 
   const opened = new Date(Math.min(...trades.map((trade) => trade.entry.time.getTime())))
-  const points: EquityPoint[] = [{ time: opened, equity: 0, trade: null }]
+  const points: EquityPoint[] = [{ time: opened, growth: 1, trade: null }]
 
-  let equity = 0
+  let growth = 1
   for (const trade of byClose) {
-    equity += netOf(trade)
-    points.push({ time: closedAt(trade), equity, trade })
+    growth *= 1 + returnOf(trade)
+    points.push({ time: closedAt(trade), growth, trade })
   }
   return points
 }

@@ -5,7 +5,7 @@
  * and what you would get back if this module were deleted tomorrow — the
  * formatting is a reading of the text, never a second copy of it.
  *
- * What comes out is blocks and runs, not HTML. `drawer.ts` turns them into
+ * What comes out is blocks and runs, not HTML. `prose.ts` turns them into
  * elements with `textContent`, so a note that happens to contain a tag or a
  * quote mark is text on the page and can never be markup. That is the reason
  * this is a parser rather than a handful of replacements.

@@ -4,16 +4,19 @@
  * The table answers "what happened"; this answers "what happened, exactly, and
  * what did I think of it". It holds the facts the table has no room for — each
  * exit with the level that fired it and how far off the fill was, a stop shown
- * as it was placed *and* as it ended — and under them the margin: your grade,
+ * as it was placed *and* as it ended — and beside them the margin: your grade,
  * your tags and your note.
  *
  * Nothing here has a save button. A grade or a tag is a click, and the click
  * is the save. The note saves when you leave it. There is no state in which
  * you would want to press anything else — you are either reading a trade or
  * writing it up, and stepping away from it means you are done.
+ *
+ * This draws one panel and knows nothing about where it is shown; `tabs.ts`
+ * gives each open trade its own tab and asks here for the panel to put in it.
  */
 
-import { h, must } from './dom.ts'
+import { h } from './dom.ts'
 import type { Format } from './format.ts'
 import type { ExitFill, Level, Trade } from './journal.ts'
 import type { Margin, Note, Written } from './margin.ts'
@@ -21,7 +24,7 @@ import { isBlank } from './margin.ts'
 import { createEditor } from './editor.ts'
 import type { Kind, Vocabulary } from './tags.ts'
 import { GRADES, GRADE_GUIDE, KINDS, toggled } from './tags.ts'
-import { closedAt, costsOf, endedAs, exitPrice, netOf } from './view.ts'
+import { closedAt, endedAs, exitPrice, returnOf } from './view.ts'
 
 const ENDED: Record<string, string> = { manual: 'By hand', stop: 'Stop', target: 'Target' }
 
@@ -30,38 +33,51 @@ const PROMPT = 'What did you see, why did you take it, and what would you do aga
 /** Prices are decimals; a fill that landed on its level lands on it exactly. */
 const SAME = 1e-9
 
-interface Drawer {
-  /** Show a trade, by the position id the table keyed its row by. */
-  open: (positionId: string) => void
+export interface Panel {
+  /** The panel itself, focusable so the arrow keys and Escape have a home. */
+  node: HTMLElement
+  /**
+   * Wait for a save still in the air, if there is one.
+   *
+   * Taking the panel off the page fires no `blur` on a focused editor — so
+   * anything that takes it away waits for the write to land first. A refused
+   * one answers false once, with the reason on the screen; ask again and it
+   * lets you go.
+   */
+  settled: () => Promise<boolean>
+  /** Redraw the grade and the chips, after the vocabulary changed under them. */
+  refresh: () => void
 }
 
-/**
- * @param trades in the order the table shows them, so stepping forward in the
- *   drawer goes the same way as reading down the page.
- * @param saved called after a write, so the table can mark the row.
- */
-export function createDrawer(
-  trades: Trade[], format: Format, margin: Margin, vocabulary: Vocabulary,
-  saved: (positionId: string) => void,
-): Drawer {
-  const backdrop = must('drawer-backdrop')
-  const panel = must('drawer')
-  const inner = must('drawer-inner')
+/** What the panel needs from whoever is showing it. */
+export interface Place {
+  /** Where this trade sits in the table's order, and how long that order is. */
+  index: number
+  count: number
+  /** Move this panel's tab to the next trade in that order; false if there is none that way. */
+  step: (by: number) => void
+  /** Take the panel off the page. */
+  close: () => void
+}
 
-  const { clock, duration, justNow, price, signed, tone, when, wrote } = format
+/** The shared pieces every panel is drawn with. */
+export interface Drawing {
+  format: Format
+  margin: Margin
+  vocabulary: Vocabulary
+  /** Called after a write, so the table can mark the row. */
+  saved: (positionId: string) => void
+}
 
-  /** The row that opened the drawer, so closing it puts focus back. */
-  let opener: Element | null = null
-  let at = -1
+/** One trade drawn out in full, with the margin beside it. */
+export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
+  const { format, margin, vocabulary, saved } = drawing
+  const { clock, day, dateOf, duration, justNow, price, signed, time, tone, when, wrote } = format
 
-  /**
-   * A save still in the air, if there is one.
-   *
-   * Stepping to the next trade replaces the panel, and removing a focused
-   * textarea from the page fires no `blur` — so anything that takes the drawer
-   * away waits for the write to land first. A refused one holds you on the
-   * trade once, with the reason on the screen; press again and it lets you go.
-   */
+  const panel = h('section', 'trade')
+  panel.tabIndex = -1
+  panel.setAttribute('aria-label', 'Trade')
+
   let inFlight: Promise<boolean> | null = null
 
   async function settled(): Promise<boolean> {
@@ -70,30 +86,7 @@ export function createDrawer(
     return pending === null ? true : pending
   }
 
-  async function close(): Promise<void> {
-    if (!(await settled())) return
-    panel.hidden = backdrop.hidden = true
-    document.body.classList.remove('locked')
-    at = -1
-    if (opener instanceof HTMLElement) opener.focus()
-    opener = null
-  }
-
-  async function step(by: number): Promise<void> {
-    if (!(await settled())) return
-    const next = at + by
-    if (next >= 0 && next < trades.length) show(next)
-  }
-
-  function show(index: number): void {
-    at = index
-    const trade = trades[index]
-    if (trade === undefined) return
-    // Rebuilt rather than refilled, so the body of the next trade starts at
-    // the top instead of wherever the last one was left scrolled to.
-    inner.replaceChildren(...draw(trade, index))
-    panel.focus()
-  }
+  let refresh = (): void => {}
 
   // ── the facts ────────────────────────────────────────────────────────────
 
@@ -139,27 +132,34 @@ export function createDrawer(
     return row
   }
 
+  /**
+   * The four prices. Everything else the old list carried — when, how long,
+   * how many lots, how it ended, the result — is in the header already, once.
+   */
   function facts(trade: Trade): HTMLElement {
-    const net = netOf(trade)
-    const held = closedAt(trade).getTime() - trade.entry.time.getTime()
-
-    const list = h('dl', 'facts')
-    const add = (label: string, value: string, className = ''): void => {
-      list.append(h('dt', '', label), h('dd', className, value))
+    const grid = h('div', 'facts')
+    const fact = (label: string, value: string, className = '', note?: string): void => {
+      const cell = h('div', 'fact')
+      cell.append(h('span', 'fact-label', label), h('span', 'fact-value ' + className, value))
+      if (note !== undefined) cell.append(h('span', 'fact-note', note))
+      grid.append(cell)
     }
-    add('Opened', when(trade.entry.time))
-    add('Closed', when(closedAt(trade)))
-    add('Held', duration(held))
-    add('Lots', String(trade.entry.volume))
-    add('Entry', price.format(trade.entry.price))
-    add('Exit', price.format(exitPrice(trade)) + (trade.exits.length > 1 ? ' avg' : ''))
-    add('Stop', levelText(trade.stop), trade.stop.final === null && trade.stop.initial === null ? 'warn' : '')
-    add('Target', levelText(trade.target))
-    add('Ended', ENDED[endedAs(trade)] ?? '—')
-    add('Gross', signed(trade.grossProfit))
-    add('Costs', signed(costsOf(trade)))
-    add('Net', signed(net), 'strong ' + tone(net))
-    return list
+    fact('Entry', price.format(trade.entry.price))
+
+    // A single exit at a level says here how far the fill landed from it;
+    // several exits get the list below instead.
+    const only = trade.exits.length === 1 ? trade.exits[0]! : null
+    let slip: string | undefined
+    if (only !== null && only.reason.kind !== 'manual') {
+      const better = (only.price - only.reason.price) * (trade.side === 'buy' ? 1 : -1)
+      if (Math.abs(better) > SAME) slip = price.format(Math.abs(better)) + (better > 0 ? ' better than the level' : ' past the level')
+    }
+    fact('Exit', price.format(exitPrice(trade)) + (trade.exits.length > 1 ? ' avg' : ''), '', slip)
+
+    const naked = trade.stop.final === null && trade.stop.initial === null
+    fact('Stop', levelText(trade.stop), naked ? 'warn' : '')
+    fact('Target', levelText(trade.target))
+    return grid
   }
 
   // ── the margin ───────────────────────────────────────────────────────────
@@ -192,33 +192,32 @@ export function createDrawer(
       }
     }
 
-    /** A click on a grade or a tag is the save; the drawer waits for it before moving on. */
+    /** A click on a grade or a tag is the save; the tab waits for it before moving on. */
     const change = (written: Written): void => { inFlight = persist(written) }
 
-    const head = h('div', 'margin-head')
-    head.append(h('h3', '', 'Your read of it'), status)
-    section.append(head)
+    section.append(status)
 
     /**
-     * Each kind of thing you can mark is drawn the same way: a title, the
-     * question it answers, and — always on the page, not in a tooltip — how to
-     * tell it from the others. The words are what keep "context" meaning the
-     * same thing next month as it does today.
+     * Each kind of thing you can mark is one row: its name down the left and
+     * the choices beside it. The question it answers and how to tell it from
+     * the others are a hover away here, and written out in full in the Tags
+     * dialog, which is where the words are kept.
      */
     const group = (title: string, asks: string, means: string): HTMLElement => {
-      const box = h('div', 'pick')
-      const label = h('div', 'pick-head')
-      label.append(h('h4', '', title), h('span', 'pick-asks', asks))
-      box.append(label, h('p', 'pick-means', means))
-      return box
+      const row = h('div', 'mark')
+      const label = h('span', 'mark-label', title)
+      label.title = asks + ' ' + means
+      row.append(label)
+      return row
     }
 
     const redraws: (() => void)[] = []
     const redraw = (): void => { for (const draw of redraws) draw() }
+    refresh = redraw
 
     // Grade: three letters, one lit. The lit one clicked again clears it.
     const grading = group(GRADE_GUIDE.title, GRADE_GUIDE.asks, GRADE_GUIDE.means)
-    const letters = h('div', 'grades')
+    const letters = h('div', 'grades chips')
     for (const grade of GRADES) {
       const button = h('button', 'grade', grade) as HTMLButtonElement
       button.type = 'button'
@@ -264,9 +263,11 @@ export function createDrawer(
      * before there was a vocabulary, or removed by hand in a SQL client. Shown
      * so it is not silently lost, and a click takes it off.
      */
-    const strays = h('div', 'pick strays')
+    const strays = h('div', 'mark strays')
     const strayChips = h('div', 'chips')
-    strays.append(h('p', 'pick-means', 'Not in your vocabulary. Click one to take it off the trade.'), strayChips)
+    const strayLabel = h('span', 'mark-label', 'Unknown')
+    strayLabel.title = 'Tags this trade carries that are not in your vocabulary. Click one to take it off.'
+    strays.append(strayLabel, strayChips)
     redraws.push(() => {
       const unknown = note().tags.filter((slug) => vocabulary.get(slug) === undefined)
       strays.hidden = unknown.length === 0
@@ -289,8 +290,9 @@ export function createDrawer(
      * creates the tag and puts it on this trade; Escape puts the chip back.
      */
     function adder(kind: Kind, chips: HTMLElement): HTMLElement {
-      const add = h('button', 'chip add', '+ new') as HTMLButtonElement
+      const add = h('button', 'chip add', '+') as HTMLButtonElement
       add.type = 'button'
+      add.title = 'A new word for this kind'
       add.addEventListener('click', () => {
         const input = document.createElement('input')
         input.type = 'text'
@@ -326,7 +328,6 @@ export function createDrawer(
     }
 
     // The note: always the editor, never a box you switch into.
-    section.append(h('h3', 'note-head', 'Note'))
     const editor = createEditor(PROMPT)
     editor.set(note().text)
     section.append(editor.node)
@@ -372,69 +373,68 @@ export function createDrawer(
 
   // ── the panel ────────────────────────────────────────────────────────────
 
-  function draw(trade: Trade, index: number): HTMLElement[] {
-    const net = netOf(trade)
+  const net = returnOf(trade)
 
-    const title = h('h2', 'drawer-title')
-    title.append(trade.symbol, h('span', 'side', trade.side))
-    if (trade.tag !== null) title.append(h('span', 'tag', trade.tag))
+  const title = h('h2', 'trade-title')
+  title.append(trade.symbol, h('span', 'side', trade.side))
+  if (trade.tag !== null) title.append(h('span', 'tag', trade.tag))
 
-    const heading = h('div')
-    heading.append(title, h('p', 'drawer-sub',
-      when(closedAt(trade)) + ' · ' + trade.entry.volume + ' lots · ' +
-      ENDED[endedAs(trade)]?.toLowerCase()))
+  const opened = trade.entry.time, closed = closedAt(trade)
+  const span = dateOf(opened) === dateOf(closed)
+    ? day(opened) + ' · ' + time(opened) + ' – ' + time(closed)
+    : when(opened) + ' – ' + when(closed)
+  const heading = h('div')
+  heading.append(title, h('p', 'trade-sub', [
+    span,
+    duration(closed.getTime() - opened.getTime()),
+    trade.entry.volume + ' lots',
+    ENDED[endedAs(trade)]?.toLowerCase(),
+  ].join(' · ')))
 
-    const nav = h('nav', 'drawer-nav')
-    const move = (label: string, by: number, title: string): HTMLElement => {
-      const button = h('button', 'quiet', label)
-      button.title = title
-      ;(button as HTMLButtonElement).type = 'button'
-      ;(button as HTMLButtonElement).disabled = index + by < 0 || index + by >= trades.length
-      button.addEventListener('click', () => { void step(by) })
-      return button
-    }
-    nav.append(
-      move('←', -1, 'Newer trade'),
-      h('span', 'drawer-count', index + 1 + ' / ' + trades.length),
-      move('→', 1, 'Older trade'))
-    const shut = h('button', 'quiet', 'Close')
-    ;(shut as HTMLButtonElement).type = 'button'
-    shut.addEventListener('click', () => { void close() })
-    nav.append(shut)
+  const nav = h('nav', 'trade-nav')
+  const move = (label: string, by: number, hint: string): HTMLElement => {
+    const button = h('button', 'quiet', label) as HTMLButtonElement
+    button.title = hint
+    button.type = 'button'
+    button.disabled = place.index + by < 0 || place.index + by >= place.count
+    button.addEventListener('click', () => place.step(by))
+    return button
+  }
+  nav.append(
+    move('←', -1, 'Newer trade'),
+    h('span', 'trade-count', place.index + 1 + ' / ' + place.count),
+    move('→', 1, 'Older trade'))
 
-    const identity = h('div', 'drawer-id')
-    identity.append(heading, h('div', 'drawer-net ' + tone(net), signed(net)))
-    const header = h('header', 'drawer-head')
-    header.append(nav, identity)
+  // One figure, net of costs: what the trade did to the account.
+  const result = h('div', 'trade-result')
+  result.append(h('div', 'trade-net ' + tone(net), signed(net)))
+  const identity = h('div', 'trade-id')
+  identity.append(heading, result)
+  const header = h('header', 'trade-head')
+  header.append(nav, identity)
 
+  // The broker's side, then yours.
+  const record = h('div', 'trade-record')
+  record.append(facts(trade))
+  // Only a trade closed in pieces needs each piece listed; one exit is the
+  // Exit figure above.
+  if (trade.exits.length > 1) {
     const exits = h('div', 'exits')
-    exits.append(h('h3', '', trade.exits.length > 1 ? 'Closed in ' + trade.exits.length + ' pieces' : 'Closed'))
+    exits.append(h('h3', '', 'Closed in ' + trade.exits.length + ' pieces'))
     const list = h('ul', 'exit-list')
     for (const exit of trade.exits) list.append(exitRow(exit, trade))
     exits.append(list)
-
-    const body = h('div', 'drawer-body')
-    body.append(facts(trade), exits, margins(trade))
-    return [header, body]
+    record.append(exits)
   }
+  panel.append(header, record, margins(trade))
 
   panel.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') { void close(); return }
+    if (event.key === 'Escape') { place.close(); return }
     const typing = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement
     if (typing) return
-    if (event.key === 'ArrowLeft') { event.preventDefault(); void step(-1) }
-    if (event.key === 'ArrowRight') { event.preventDefault(); void step(1) }
+    if (event.key === 'ArrowLeft') { event.preventDefault(); place.step(-1) }
+    if (event.key === 'ArrowRight') { event.preventDefault(); place.step(1) }
   })
-  backdrop.addEventListener('click', () => { void close() })
 
-  return {
-    open(positionId) {
-      const index = trades.findIndex((trade) => trade.positionId === positionId)
-      if (index < 0) return
-      opener = document.activeElement
-      panel.hidden = backdrop.hidden = false
-      document.body.classList.add('locked')
-      show(index)
-    },
-  }
+  return { node: panel, settled, refresh: () => refresh() }
 }
