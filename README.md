@@ -22,6 +22,14 @@ bucket, one folder per trade, and a trade's tab streams whatever its folder
 holds and is where a new one goes in. The bucket is the list, so nothing has
 to be kept in step with it.
 
+The journal begins on a date: `JOURNAL_BEGINS` at the top of `src/main.ts`,
+16 September 2026, the day the risk manager went live. Every trade since was
+sized by it and carries its stop and target on the entry order, so what it
+risked is a fact. The trades before it were sized by hand with no stop on
+record at entry, so nothing about their risk can be said, and they stay on the
+record and off the page. Their deals still count toward the balance every
+later trade was opened on. Move the date and they come back.
+
 ## The other half
 
 The record is written by **trading-journal** (`dlysl2402/trading-journal`): a

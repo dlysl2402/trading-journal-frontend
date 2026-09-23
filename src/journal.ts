@@ -106,7 +106,7 @@ export interface Journal {
    * offset in force now is the only honest answer.
    */
   serverUtcOffsetMinutes: number | null
-  /** Closed round trips only. An open position is not a trade yet. */
+  /** Closed round trips opened since the journal began. An open position is not a trade yet. */
   trades: Trade[]
 }
 
@@ -280,7 +280,13 @@ function reconcileBalance(feed: RawFeed): void {
   }
 }
 
-export function buildJournal(feed: RawFeed): Journal {
+/**
+ * `since` is the day the journal begins, on the broker's clock. A round trip
+ * opened before it stays on the record and out of the journal: its deals
+ * still count toward the balance every later trade was opened on, because the
+ * account did not begin then, but it is neither shown nor summed.
+ */
+export function buildJournal(feed: RawFeed, since = new Date(0)): Journal {
   reconcileBalance(feed)
 
   const orders = new Map(feed.orders.map((order) => [order.id, order]))
@@ -289,7 +295,7 @@ export function buildJournal(feed: RawFeed): Journal {
   const trades: Trade[] = []
   for (const [positionId, deals] of Map.groupBy(fills, (deal) => deal.positionId)) {
     const trade = toTrade(positionId, deals, orders, before)
-    if (trade !== null) trades.push(trade)
+    if (trade !== null && trade.entry.time >= since) trades.push(trade)
   }
 
   const { account } = feed

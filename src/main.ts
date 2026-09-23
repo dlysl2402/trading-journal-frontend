@@ -20,6 +20,16 @@ import { drawPage } from './page.ts'
 import { AuthError, readAnnotations, readRecord, readTags, signIn, signOut, storedSession } from './store.ts'
 import { openVocabulary } from './tags.ts'
 
+/**
+ * The day the journal begins, on the broker's clock. The risk manager went
+ * live on 16 September 2026, and every trade since was sized by it and
+ * carries its stop and target on the entry order, so what it risked is a
+ * fact. The trades before it were sized by hand with no stop on record at
+ * entry, so nothing about their risk can be said: they stay on the record and
+ * off the page. Move this date and they come back.
+ */
+const JOURNAL_BEGINS = new Date('2026-09-16T00:00:00.000Z')
+
 const gate = must('gate')
 const status = must('status')
 const app = must('app')
@@ -94,7 +104,7 @@ async function load(): Promise<void> {
 
   try {
     const { accountId, feed } = await readRecord(session)
-    const journal = buildJournal(feed)
+    const journal = buildJournal(feed, JOURNAL_BEGINS)
     // After the feed, because the account id that keys the margin comes from
     // it — and only the account the record was actually read for.
     const [annotations, tags] = await Promise.all([readAnnotations(accountId), readTags()])

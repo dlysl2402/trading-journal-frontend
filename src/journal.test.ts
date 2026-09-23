@@ -120,6 +120,18 @@ test('a deposit between two trades changes what the second was opened on', () =>
   assert.deepEqual(trades.map((t) => t.balanceAtEntry), [10_000, 15_100])
 })
 
+test('a trade opened before the journal begins stays on the record and out of the journal', () => {
+  const { trades } = buildJournal(feed([
+    deal({ id: '1' }),
+    exit({ id: '2', profit: 100 }, '1'),
+    deal({ id: '3', time: '2026-09-08T11:30:03.000Z', brokerTime: '2026-09-08 14:30:03.000' }),
+    exit({ id: '4', time: '2026-09-08T12:30:03.000Z', brokerTime: '2026-09-08 15:30:03.000' }, '3'),
+  ]), new Date('2026-09-08T00:00:00.000Z'))
+  assert.deepEqual(trades.map((t) => t.positionId), ['3'])
+  // What the earlier trade made still counts toward what the later one was opened on.
+  assert.equal(trades[0]?.balanceAtEntry, 10_100)
+})
+
 test('two deals in the same millisecond are booked in ticket order', () => {
   // A second deposit and the entry share a timestamp; the lower ticket came first.
   const { trades } = buildJournal(feed([
