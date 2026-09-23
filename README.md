@@ -171,10 +171,12 @@ and are harmless there.
 
 ## Deploying
 
-Vercel, as a static build. `vercel.json` sets the build command and points the
-output at `dist/`; there is nothing to configure in the dashboard and no
-environment variables to set, because the only two values the page needs are at
-the top of `src/store.ts`.
+DigitalOcean App Platform, as a static site. `.do/app.yaml` sets the build
+command, points the output at `dist/` and redeploys on every push to `main`;
+there are no environment variables to set, because the only two values the page
+needs are at the top of `src/store.ts`. `doctl apps create --spec .do/app.yaml`
+makes the app, and `doctl apps update <app id> --spec .do/app.yaml` carries a
+change to the spec over to it.
 
 The deployed URL is public. What is behind it is not: without a sign-in the
 page shows a form, and the record refuses to answer.

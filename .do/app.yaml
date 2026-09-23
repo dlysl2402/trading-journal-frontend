@@ -1,0 +1,12 @@
+# DigitalOcean App Platform: the page as a static site, rebuilt on every push
+# to main. Nothing to set in the environment; the two values the page needs are
+# at the top of src/store.ts.
+name: trading-journal
+static_sites:
+  - name: web
+    github:
+      repo: dlysl2402/trading-journal-frontend
+      branch: main
+      deploy_on_push: true
+    build_command: npm run build
+    output_dir: dist
