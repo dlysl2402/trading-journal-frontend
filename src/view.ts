@@ -73,8 +73,10 @@ export function stopAt(trade: Trade): number | null {
 }
 
 /**
- * Growth over time, one point per closed trade, starting at one when the
- * first trade was opened so the line begins on the baseline.
+ * Growth over time, one point per closed trade, starting at one at midnight
+ * of the day the first trade opened so the line begins on the baseline and
+ * its climb to the first result is a stroke across the morning rather than
+ * a hairline up the left edge — a trade held two minutes has no width.
  *
  * Returns rather than money, on purpose: the sample account took four
  * deposits totalling 32,000 against a few hundred of P&L, so a balance curve
@@ -88,8 +90,10 @@ export function equityCurve(trades: Trade[]): EquityPoint[] {
   if (trades.length === 0) return []
   const byClose = [...trades].sort((a, b) => closedAt(a).getTime() - closedAt(b).getTime())
 
-  const opened = new Date(Math.min(...trades.map((trade) => trade.entry.time.getTime())))
-  const points: EquityPoint[] = [{ time: opened, growth: 1, trade: null }]
+  const opened = Math.min(...trades.map((trade) => trade.entry.time.getTime()))
+  // The journal's times are the broker's clock read as UTC, so this is the broker's midnight.
+  const dawn = new Date(new Date(opened).setUTCHours(0, 0, 0, 0))
+  const points: EquityPoint[] = [{ time: dawn, growth: 1, trade: null }]
 
   let growth = 1
   for (const trade of byClose) {

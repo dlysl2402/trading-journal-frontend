@@ -36,10 +36,10 @@ test('a return is the net against the balance the trade was sized on', () => {
   assert.equal(returnOf(trades[2]!), 0.0075)
 })
 
-test('the curve starts at one when the first trade opened, then compounds once per trade', () => {
+test('the curve starts at one at midnight of the first trade\'s day, then compounds once per trade', () => {
   const curve = equityCurve(trades)
   assert.deepEqual(curve.map((p) => Number(p.growth.toFixed(6))), [1, 1.1, 1.045, 1.052838])
-  assert.equal(curve[0]?.time.toISOString(), '2026-09-07T10:00:00.000Z')
+  assert.equal(curve[0]?.time.toISOString(), '2026-09-07T00:00:00.000Z')
   assert.equal(curve[0]?.trade, null)
   assert.deepEqual(curve.slice(1).map((p) => p.trade?.positionId), ['1', '2', '3'])
 })

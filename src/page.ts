@@ -228,7 +228,7 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
         detail.append(h('span', 'net ' + tone(returnOf(p.trade)), signed(returnOf(p.trade))))
         tooltip.append(detail)
       } else {
-        tooltip.append(h('span', '', when(p.time) + ' · first trade opened'))
+        tooltip.append(h('span', '', day(p.time) + ' · before the first trade'))
       }
       tooltip.style.display = 'block'
 
