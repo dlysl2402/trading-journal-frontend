@@ -31,6 +31,12 @@ const PAGE = 1000
 /** Refresh this long before expiry, so a slow load cannot straddle it. */
 const EARLY = 60_000
 
+/** The bucket a trade's clips are kept in; `schema.sql` names it and its layout. */
+const VIDEOS = 'videos'
+
+/** How long a signed clip stays playable, in seconds: longer than any tab is left open. */
+const A_DAY = 86_400
+
 const STORAGE_KEY = 'journal.session'
 
 export interface Session {
@@ -136,6 +142,20 @@ async function live(): Promise<Session> {
 }
 
 /**
+ * A reply the record refused. A 401 is a sign-in that has lapsed under the
+ * page, whatever the call was. Anything else is described by the body, which
+ * names the policy, the missing table or the missing bucket where the status
+ * alone cannot tell them apart.
+ */
+async function refused(response: Response, doing: string): Promise<never> {
+  if (response.status === 401) {
+    signOut()
+    throw new AuthError('Your sign-in has expired.')
+  }
+  throw new Error(`Supabase ${response.status} ${doing}: ${(await response.text()).slice(0, 300)}`)
+}
+
+/**
  * Every row matching a PostgREST filter. The response says how many rows exist
  * in total, and that — not a short page — is the signal to stop, so a lowered
  * row cap cannot truncate a read.
@@ -152,15 +172,7 @@ async function selectAll<T>(session: Session, table: string, filter: string): Pr
         Prefer: 'count=exact',
       },
     })
-    if (response.status === 401) {
-      signOut()
-      throw new AuthError('Your sign-in has expired.')
-    }
-    if (!response.ok) {
-      // The body names the policy or the missing table; the status alone
-      // cannot tell one from the other.
-      throw new Error(`Supabase ${response.status} reading ${table}: ${(await response.text()).slice(0, 300)}`)
-    }
+    if (!response.ok) await refused(response, `reading ${table}`)
     const page = await response.json() as T[]
     rows.push(...page)
 
@@ -248,13 +260,7 @@ async function upsert(table: string, key: string, row: unknown, doing: string): 
     },
     body: JSON.stringify(row),
   })
-  if (response.status === 401) {
-    signOut()
-    throw new AuthError('Your sign-in has expired.')
-  }
-  if (!response.ok) {
-    throw new Error(`Supabase ${response.status} ${doing}: ${(await response.text()).slice(0, 300)}`)
-  }
+  if (!response.ok) await refused(response, doing)
 }
 
 /**
@@ -286,4 +292,116 @@ export async function saveAnnotation(
 /** Add a word to the vocabulary, or change one. */
 export async function saveTag(tag: RawTag): Promise<void> {
   await upsert('tags', 'slug', tag, 'saving the tag')
+}
+
+/** One clip, as a <video> can play it. */
+export interface Clip {
+  /** The file's name in the trade's folder: the only name a clip has. */
+  name: string
+  /** Signed, so it carries its own right to be fetched. Good for a day. */
+  url: string
+}
+
+/** One entry of a folder listing. The name is relative to the folder. */
+interface Listed {
+  name: string
+  /** Null for a folder rather than a file. */
+  id: string | null
+}
+
+/** One path's answer from a signing request. */
+interface Signed {
+  path: string
+  /** Relative to the Storage API's root, the file's name spelled as it is; null when the path was refused. */
+  signedURL: string | null
+  error: string | null
+}
+
+/**
+ * A signed URL as a <video> can fetch it.
+ *
+ * The server writes the file's name into the path exactly as it is, spaces
+ * and all, which is not a URL yet. Each segment is encoded here; the token
+ * after the question mark is left alone, since it is the part that is checked.
+ */
+function playable(signedURL: string): string {
+  const query = signedURL.lastIndexOf('?')
+  const path = signedURL.slice(0, query).split('/').map(encodeURIComponent).join('/')
+  return `${SUPABASE_URL}/storage/v1${path}${signedURL.slice(query)}`
+}
+
+/** One call to the Storage API, signed in as you. */
+async function storage<T>(path: string, body: unknown, doing: string): Promise<T> {
+  const session = await live()
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) await refused(response, doing)
+  return response.json() as Promise<T>
+}
+
+/**
+ * The clips recorded against one trade, ready to play.
+ *
+ * The bucket is the whole record of which trades have a video: a trade has
+ * clips if its folder has files, and there is no table that could say
+ * otherwise. So the folder is listed, and then every file in it is signed in
+ * one request. The bucket is private, and a <video> cannot carry your token
+ * the way a fetch can, so each clip is given a URL that carries its own.
+ */
+export async function readClips(accountId: string, positionId: string): Promise<Clip[]> {
+  const folder = `${accountId}/${positionId}`
+  const listed = await storage<Listed[]>(`object/list/${VIDEOS}`, { prefix: folder }, 'listing the clips')
+  // A folder made in the dashboard holds a hidden placeholder that is not a clip.
+  const names = listed
+    .filter((entry) => entry.id !== null && !entry.name.startsWith('.'))
+    .map((entry) => entry.name)
+  if (names.length === 0) return []
+
+  const signed = await storage<Signed[]>(`object/sign/${VIDEOS}`,
+    { expiresIn: A_DAY, paths: names.map((name) => `${folder}/${name}`) }, 'signing the clips')
+  return signed.map((entry, at) => {
+    if (entry.signedURL === null) throw new Error(`Supabase would not sign ${names[at]}: ${entry.error}`)
+    return { name: names[at]!, url: playable(entry.signedURL) }
+  })
+}
+
+/**
+ * Put one clip in a trade's folder, saying how much of it has gone.
+ *
+ * An XMLHttpRequest rather than a fetch, for one reason: fetch cannot report
+ * how much of a body it has sent, and a two-gigabyte recording on a home
+ * uplink is minutes of silence without that. One request carries the whole
+ * file, up to the project's upload limit; a request that fails is started
+ * over, not resumed. The file keeps its own name, so a second upload under
+ * the same name is refused rather than quietly replacing the first.
+ */
+export async function uploadClip(
+  accountId: string, positionId: string, file: File, progress: (fraction: number) => void,
+): Promise<void> {
+  const session = await live()
+  const path = [VIDEOS, accountId, positionId, file.name].map(encodeURIComponent).join('/')
+  await new Promise<void>((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    request.open('POST', `${SUPABASE_URL}/storage/v1/object/${path}`)
+    request.setRequestHeader('apikey', SUPABASE_PUBLISHABLE_KEY)
+    request.setRequestHeader('Authorization', `Bearer ${session.accessToken}`)
+    request.setRequestHeader('Content-Type', file.type || 'video/mp4')
+    request.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) progress(event.loaded / event.total)
+    })
+    request.addEventListener('load', () => {
+      if (request.status >= 200 && request.status < 300) { resolve(); return }
+      // The same rule as every other refused call, given the reply's shape.
+      refused(new Response(request.responseText, { status: request.status }), 'uploading the clip').catch(reject)
+    })
+    request.addEventListener('error', () => reject(new Error('The upload failed before Supabase answered.')))
+    request.send(file)
+  })
 }

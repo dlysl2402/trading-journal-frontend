@@ -16,7 +16,11 @@ The one exception is the margin: your notes, grades and tags. They are not a
 function of the broker's rows, so they cannot be rebuilt from them — they are
 written back to the record as you type, into the two tables this page is
 allowed to write: `annotations`, one row per trade, and `tags`, the vocabulary
-those tags are picked from.
+those tags are picked from. The clips you record of a trade are the margin's
+too, and the one thing of yours not in a table: they sit in a private Storage
+bucket, one folder per trade, and a trade's tab streams whatever its folder
+holds and is where a new one goes in. The bucket is the list, so nothing has
+to be kept in step with it.
 
 ## The other half
 
@@ -48,7 +52,7 @@ the one change that needs both repositories in the same breath.
 | — | one trade | `src/trade.ts` — a trade drawn out in full, and where you write |
 | — | the words | `src/settings.ts` — the dialog where tags are named, described, ordered and retired |
 
-`src/store.ts` reads layer 1, writes layer 4 and signs you in. `src/notes.ts`
+`src/store.ts` reads layer 1, writes layer 4, signs the clips and signs you in. `src/notes.ts`
 is the formatting a note may use, read from text into blocks and written back
 out again — blocks rather than HTML, which is why a note can hold an angle
 bracket and still be words on the page. `src/prose.ts` is the other half of

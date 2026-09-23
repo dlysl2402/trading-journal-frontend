@@ -11,9 +11,15 @@
  * fails leaves the remembered note alone and throws, which is what lets the
  * editor keep your words on the screen rather than replacing them with a
  * stale copy of what the record still holds.
+ *
+ * The clips you record of a trade are the margin's too, yours and not the
+ * broker's, but they are not held here: the bucket that keeps them is the
+ * record of which trades have one, and it is asked each time a trade is
+ * opened, so nothing on this side has to be kept in step with it.
  */
 
-import { saveAnnotation } from './store.ts'
+import { readClips, saveAnnotation, uploadClip } from './store.ts'
+import type { Clip } from './store.ts'
 import type { RawAnnotation } from './rows.ts'
 import type { Grade } from './tags.ts'
 
@@ -46,6 +52,10 @@ export interface Margin {
   save: (positionId: string, written: Written) => Promise<Note>
   /** How many trades have something written against them. */
   written: () => number
+  /** The clips recorded against a trade, signed and ready to play. */
+  clips: (positionId: string) => Promise<Clip[]>
+  /** Put a clip in a trade's folder, saying how far along it is. */
+  addClip: (positionId: string, file: File, progress: (fraction: number) => void) => Promise<void>
 }
 
 export function openMargin(accountId: string, rows: RawAnnotation[]): Margin {
@@ -77,5 +87,8 @@ export function openMargin(accountId: string, rows: RawAnnotation[]): Margin {
       for (const note of notes.values()) if (!isBlank(note)) count++
       return count
     },
+
+    clips: (positionId) => readClips(accountId, positionId),
+    addClip: (positionId, file, progress) => uploadClip(accountId, positionId, file, progress),
   }
 }

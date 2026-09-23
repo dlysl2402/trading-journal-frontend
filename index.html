@@ -306,6 +306,21 @@
   .exit-why { color: var(--dim); }
   .exit-slip { margin-left: auto; font-size: 10.5px; }
 
+  /* The tape: the clips recorded against the trade, streamed, one under
+     another, and under them the way a new one gets in. */
+  .tape { margin: 16px 0 0; padding: 20px 24px; border: 1px solid var(--hair); background: var(--void); }
+  .reel { display: grid; gap: 18px; }
+  .reel:not(:empty) { margin-bottom: 16px; }
+  .clip { margin: 0; }
+  .clip video { display: block; width: 100%; max-height: 72vh; background: #000; }
+  .clip figcaption { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); margin-top: 8px; }
+  .tape-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .tape-foot .saved { text-align: left; }
+  .tape-foot .saved.failed { max-width: none; }
+  .add-clip { border-style: dashed; }
+  .add-clip:disabled { opacity: 0.5; cursor: default; }
+  .add-clip:disabled:hover { background: none; color: var(--faint); }
+
   /* The margin: one row per kind of mark, the name down the left and the
      choices beside it, then the note. */
   .margin { position: relative; margin: 16px 0 0; padding: 22px 24px 26px; border: 1px solid var(--hair); background: var(--void); }

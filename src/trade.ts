@@ -371,6 +371,84 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     return section
   }
 
+  // ── the tape ─────────────────────────────────────────────────────────────
+
+  /**
+   * The clips recorded against this trade, streamed from the record, and the
+   * way a new one gets in.
+   *
+   * Asked for as the panel is drawn, not as the page loads: a trade you never
+   * open never costs a request, and a signed URL outlives any tab. The player
+   * fetches only what it plays, enough to learn the length and then the
+   * stretches you watch or scrub to, so a long recording opens at once and
+   * is never downloaded whole.
+   *
+   * Adding one is a single request carrying the whole file, narrated on the
+   * status line as it goes, because a long recording on a home uplink takes
+   * minutes. It is not waited for the way a save is: closing the tab or
+   * stepping to the next trade stops showing it, not sending it, and the
+   * clip is there the next time this trade is opened.
+   */
+  function tape(trade: Trade): HTMLElement {
+    const section = h('section', 'tape')
+    const reel = h('div', 'reel')
+    const foot = h('div', 'tape-foot')
+    const status = h('span', 'saved')
+
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'video/mp4'
+    input.hidden = true
+    const add = h('button', 'quiet add-clip', '+ Add clip') as HTMLButtonElement
+    add.type = 'button'
+    add.title = 'An MP4 of this trade, from your recording'
+    add.addEventListener('click', () => input.click())
+
+    const failed = (error: unknown): void => {
+      status.className = 'saved failed'
+      status.textContent = error instanceof Error ? error.message : String(error)
+    }
+
+    /** Draw every clip the folder holds now. */
+    async function fill(): Promise<void> {
+      const clips = await margin.clips(trade.positionId)
+      reel.replaceChildren(...clips.map((clip) => {
+        const figure = h('figure', 'clip')
+        const video = document.createElement('video')
+        video.controls = true
+        video.preload = 'metadata'
+        video.src = clip.url
+        figure.append(video, h('figcaption', '', clip.name))
+        return figure
+      }))
+    }
+
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]
+      // Cleared so the same file, picked again after a refusal, counts as a pick.
+      input.value = ''
+      if (file === undefined) return
+      add.disabled = true
+      status.className = 'saved working'
+      status.textContent = 'Uploading…'
+      margin.addClip(trade.positionId, file, (fraction) => {
+        status.textContent = `Uploading… ${Math.floor(fraction * 100)}%`
+      })
+        .then(fill)
+        .then(() => {
+          status.className = 'saved'
+          status.textContent = 'Added ' + file.name
+        })
+        .catch(failed)
+        .finally(() => { add.disabled = false })
+    })
+
+    fill().catch(failed)
+    foot.append(add, status, input)
+    section.append(reel, foot)
+    return section
+  }
+
   // ── the panel ────────────────────────────────────────────────────────────
 
   const net = returnOf(trade)
@@ -413,7 +491,6 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
   const header = h('header', 'trade-head')
   header.append(nav, identity)
 
-  // The broker's side, then yours.
   const record = h('div', 'trade-record')
   record.append(facts(trade))
   // Only a trade closed in pieces needs each piece listed; one exit is the
@@ -426,7 +503,8 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     exits.append(list)
     record.append(exits)
   }
-  panel.append(header, record, margins(trade))
+  // The broker's side, then the tape, then yours.
+  panel.append(header, record, tape(trade), margins(trade))
 
   panel.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') { place.close(); return }
