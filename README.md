@@ -96,7 +96,7 @@ units of the stop it was opened with, when it was opened with one; then the four
 prices, with the stop as it was placed *and* as it ended, and how far a fill
 landed from the level that fired it. A trade closed in pieces lists each piece;
 nothing else is said twice. On the right is your read of it: a grade, your tags,
-and your note. The week's biggest win and biggest loss say so under their
+and your notes. The week's biggest win and biggest loss say so under their
 result: they are the ones worth taking apart moment by moment, where most trades
 need a grade and a tag and no more. Open as many as you like; the strip under the header switches
 between them, and the overview comes back scrolled to where you left it. A
@@ -114,13 +114,14 @@ above the list are always every trade; only the list narrows.
 
 **The tape is written about, moment by moment.** Watch it and press `M` where
 something happens — the setup forming, the entry, the first piece off — and the
-tape stops there and the time goes into the note, as a line of its own in time
-order, with the caret after it for what you saw. `Esc` puts the pen down and `K`
-plays on. A time in the note is written `[0:26]`, so it reads as a time in the
+tape stops there and the time goes into the note you were last in (the in-trade
+one until you have been in another), as a line of its own in time order, with
+the caret after it for what you saw. `Esc` puts the pen down and `K`
+plays on. A time in a note is written `[0:26]`, so it reads as a time in the
 stored text too; in the note it is a chip that plays the tape from there, and on
 the scrubber it is a pin, lit as the tape passes it. `Shift M` marks without
 stopping, and so does `M` full screen, for marking as you watch and writing up
-after; the clock in the note's toolbar puts the tape's time where the caret is,
+after; the clock in each note's toolbar puts the tape's time where the caret is,
 and typing `[0:31]` makes one too. The tape's keys work from anywhere on the tab:
 `K` or space to play, `J` and `L` five seconds back and on, `,` and `.` a frame
 at a time, `<` and `>` for the speed, which this browser keeps, `0` to `9` for a
@@ -157,14 +158,20 @@ The vocabulary lives in the `tags` table the backend's `schema.sql` creates.
 A project that predates it runs `supabase/2026-09-21-tags-and-grade.sql` there
 first; until then the page has nothing to pick from and says so.
 
-The note is an editor: bold looks bold rather than `**bold**`, and the toolbar
+**A trade is written up in three notes**, in the order it happened, and all
+three after the close. *Pre-trade* is what you saw and why you took it;
+*in-trade*, what happened while it was open and what you did about it;
+*post-trade*, what you would do again and what you would change. Any one of
+them is enough to take a trade off the review queue.
+
+Each note is an editor: bold looks bold rather than `**bold**`, and the toolbar
 above it does bold, italic, code, headings, both kinds of list and quotes.
 `⌘B` and `⌘I` work, and typing `- `, `1. `, `> ` or `## ` at the start of a
-line turns into the thing it means. Tags sit above it as chips you click to
+line turns into the thing it means. Tags sit above them as chips you click to
 edit as a line.
 
 Nothing needs a save button. A grade or a tag is saved by the click that sets
-it, and the note by leaving it — or by `⌘↵`, or **Save note** under it, for
+it, and a note by leaving it — or by `⌘↵`, or **Save notes** under them, for
 saving without leaving. `Esc` puts the pen down and `Esc` again closes the tab;
 `←` `→` move the tab to the newer or older trade, and `N` to the next one
 waiting for a review. None of those keys do anything while you are typing, so
@@ -173,8 +180,12 @@ words on the screen and says why, and holds the tab open rather than carrying
 them off it.
 
 **What is stored is still plain text.** The editor is a reading of it, not a
-second copy: `annotations.note` holds Markdown you could open in any editor, so
-a note stays legible in a SQL client and portable out of here. Formatting is
+second copy: `annotations.pre_trade`, `in_trade` and `note` — the post-trade
+one, named before there were three — hold Markdown you could open in any
+editor, so a note stays legible in a SQL client and portable out of here. A
+project set up before 2026-09-27 adds the first two with the backend's
+`supabase/2026-09-27-trade-notes.sql`, and has to run it before this page is
+deployed: the page asks for both columns by name. Formatting is
 turned back into text on every save, and `notes.ts` writes one spelling of each
 thing — `##` for headings, `-` for bullets, numbers counting from one, `[0:26]`
 for a moment — so opening a note and closing it again is not an edit. What the

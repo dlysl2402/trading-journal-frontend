@@ -19,7 +19,7 @@ import { isBlank } from './margin.ts'
 import type { Kind } from './tags.ts'
 
 export interface Filter {
-  /** Words that must all appear somewhere in the trade: symbol, side, the broker's tag, your tags, your note. */
+  /** Words that must all appear somewhere in the trade: symbol, side, the broker's tag, your tags, your notes. */
   text: string
   result: 'all' | 'win' | 'loss'
   review: 'all' | 'todo' | 'done'
@@ -73,7 +73,7 @@ export function matches(entry: Entry, note: Note, filter: Filter, words: Words):
   if (terms.length === 0) return true
   const haystack = [
     trade.symbol, trade.side, trade.side === 'buy' ? 'long' : 'short', trade.tag ?? '',
-    ...note.tags.map(words.label), note.text,
+    ...note.tags.map(words.label), note.preTrade, note.inTrade, note.postTrade,
   ].join('\n').toLowerCase()
   return terms.every((term) => haystack.includes(term))
 }

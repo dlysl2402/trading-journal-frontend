@@ -24,8 +24,11 @@ const words: Words = {
   label: (slug) => ({ 'break-and-continue': 'Break and continue', chased: 'Chased' })[slug] ?? slug,
 }
 
-const blank: Note = { text: '', tags: [], grade: null, updatedAt: null }
-const written: Note = { text: 'Waited for the **close**.', tags: ['break-and-continue'], grade: 'A', updatedAt: new Date() }
+const blank: Note = { preTrade: '', inTrade: '', postTrade: '', tags: [], grade: null, updatedAt: null }
+const written: Note = {
+  preTrade: 'Retest of the **Asian high**.', inTrade: '', postTrade: 'Waited for the **close**.',
+  tags: ['break-and-continue'], grade: 'A', updatedAt: new Date(),
+}
 const only = (over: Partial<Filter>): Filter => ({ ...EVERYTHING, ...over })
 
 test('the empty filter lets everything through and narrows nothing', () => {
@@ -46,6 +49,8 @@ test('the review filter reads whether anything is written, not what', () => {
   assert.equal(matches(entry(), blank, only({ review: 'todo' }), words), true)
   assert.equal(matches(entry(), written, only({ review: 'todo' }), words), false)
   assert.equal(matches(entry(), { ...blank, grade: 'C' }, only({ review: 'done' }), words), true)
+  // Any one of the three notes is something written.
+  assert.equal(matches(entry(), { ...blank, inTrade: 'Stop to breakeven.' }, only({ review: 'done' }), words), true)
 })
 
 test('side and day narrow to exactly one', () => {
@@ -54,9 +59,10 @@ test('side and day narrow to exactly one', () => {
   assert.equal(matches(entry(), blank, only({ day: '2026-09-21', side: 'buy' }), words), true)
 })
 
-test('search finds every word somewhere in the trade, your tags by their label and your note', () => {
+test('search finds every word somewhere in the trade, your tags by their label and your notes', () => {
   assert.equal(matches(entry(), written, only({ text: 'xau break' }), words), true)
   assert.equal(matches(entry(), written, only({ text: 'close long' }), words), true)
+  assert.equal(matches(entry(), written, only({ text: 'asian close' }), words), true)
   assert.equal(matches(entry(), written, only({ text: 'riskmanager' }), words), true)
   assert.equal(matches(entry(), written, only({ text: 'xau chased' }), words), false)
 })

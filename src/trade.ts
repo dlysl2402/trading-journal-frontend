@@ -7,10 +7,11 @@
  * moment by moment — see `tape.ts`. Under it are the facts the list has no room for — the plan
  * drawn against the outcome, each exit with the level that fired it and how
  * far off the fill was, a stop shown as it was placed *and* as it ended —
- * and beside them the margin: your grade, your tags and your note, in the
+ * and beside them the margin: your grade, your tags and your notes, in the
  * order a review asks for them. The grade first, for the setup as it looked
  * before the result was known; then why this trade, why then, what shape;
- * then what you would take back; then the tape, in words.
+ * then what you would take back; then the trade in words — before, during
+ * and after.
  *
  * Two columns on a wide screen, the tape and the broker's side on the left
  * and yours on the right; one column, the same order, on a narrow one.
@@ -41,7 +42,14 @@ import { tipMark } from './tips.ts'
 import type { Standing } from './view.ts'
 import { closedAt, endedAs, exitPrice, inFavour, multipleOf, plannedRatio, returnOf } from './view.ts'
 
-const PROMPT = 'What did you see, why did you take it, and what would you do again?'
+type Phase = 'preTrade' | 'inTrade' | 'postTrade'
+
+/** The three notes, in the order the trade happened, each with the question it answers. */
+const NOTES: readonly { phase: Phase; title: string; prompt: string }[] = [
+  { phase: 'preTrade', title: 'Pre-trade', prompt: 'What did you see, and why did you take it?' },
+  { phase: 'inTrade', title: 'In-trade', prompt: 'What happened while you were in, and what did you do about it?' },
+  { phase: 'postTrade', title: 'Post-trade', prompt: 'What would you do again, and what would you change?' },
+]
 
 /** Prices are decimals; a fill that landed on its level lands on it exactly. */
 const SAME = 1e-9
@@ -118,18 +126,22 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
   /** Set a grade from the keyboard, as its button would. */
   let grade = (_: Grade): void => {}
 
-  // ── the tape, and the note that points into it ───────────────────────────
+  // ── the tape, and the notes that point into it ───────────────────────────
 
-  // Each needs the other: marking the tape writes in the note, and a moment
-  // in the note plays the tape. The note is made with the margin, below.
-  let editor: Editor | null = null
+  // Each needs the other: marking the tape writes in a note, and a moment in
+  // any note plays the tape. The notes are made with the margin, below. A
+  // mark goes into the note you were last in — the in-trade one until then.
+  const editors: Editor[] = []
+  let marking: Editor | null = null
   const tape = createTape({
     clips: () => margin.clips(trade.positionId),
     addClip: (file, progress) => margin.addClip(trade.positionId, file, progress),
-    mark: (seconds, quiet) => { editor?.addMoment(seconds, !quiet) },
+    mark: (seconds, quiet) => { marking?.addMoment(seconds, !quiet) },
     at: (seconds) => {
-      editor?.light(seconds)
-      editor?.tapeReady(seconds !== null)
+      for (const editor of editors) {
+        editor.light(seconds)
+        editor.tapeReady(seconds !== null)
+      }
     },
   })
 
@@ -516,62 +528,76 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
       return add
     }
 
-    // The note: always the editor, never a box you switch into, and the place
-    // the tape is written about — its moments are marks on the scrubber.
+    // The notes: each always the editor, never a box you switch into, and
+    // each a place the tape is written about — a moment in any of them is a
+    // mark on the scrubber.
     const writing = h('div', 'mark notes')
-    const notesHead = h('div', 'mark-head')
-    notesHead.append(h('span', 'mark-label', 'Notes'))
-    writing.append(notesHead)
-    const writer = createEditor(PROMPT, {
-      now: tape.now,
-      seek: tape.seek,
-      changed: () => { tape.moments(writer.moments()) },
+    const writers = NOTES.map(({ phase, title, prompt }) => {
+      const writer = createEditor(prompt, {
+        now: tape.now,
+        seek: tape.seek,
+        changed: () => { tape.moments(editors.flatMap((one) => one.moments())) },
+      })
+      editors.push(writer)
+      if (phase === 'inTrade') marking = writer
+      const head = h('div', 'mark-head')
+      head.append(h('span', 'mark-label', title))
+      const part = h('div', 'phase-note')
+      part.append(head, writer.node)
+      writing.append(part)
+      return { phase, writer }
     })
-    editor = writer
-    writer.set(note().text)
+    for (const { phase, writer } of writers) writer.set(note()[phase])
 
-    // Leaving the note saves it; this is for saving without leaving, and for
+    // Leaving a note saves it; this is for saving without leaving, and for
     // being sure. It keeps the caret where it was, so you can write on.
     const foot = h('div', 'note-foot')
-    const save = h('button', 'btn secondary small', 'Save note') as HTMLButtonElement
+    const save = h('button', 'btn secondary small', 'Save notes') as HTMLButtonElement
     save.type = 'button'
-    save.dataset.tip = `It also saves when you click away, or with ${MOD}↵`
+    save.dataset.tip = `They also save when you click away, or with ${MOD}↵`
     save.addEventListener('mousedown', (event) => { event.preventDefault() })
-    save.addEventListener('click', () => { inFlight = commitNote() })
+    save.addEventListener('click', () => { inFlight = commitNotes() })
     foot.append(save)
-    writing.append(writer.node, foot)
+    writing.append(foot)
     section.append(writing)
 
     /**
-     * Write the note if it differs from what was kept. A save already in the
-     * air does not swallow this one: it queues behind it, carrying the words
-     * as they are now.
+     * Write whichever notes differ from what was kept, in one write, since
+     * they share a row. A save already in the air does not swallow this one:
+     * it queues behind it, carrying the words as they are now.
      */
-    function commitNote(): Promise<boolean> {
-      const text = writer.value()
-      // Reading a note is not editing it: the text comes back through the same
-      // normalising that wrote it, so an untouched note matches exactly.
-      if (text === note().text) return Promise.resolve(true)
-      return persist((current) => ({ ...current, text }))
+    function commitNotes(): Promise<boolean> {
+      const typed: Partial<Record<Phase, string>> = {}
+      for (const { phase, writer } of writers) {
+        const text = writer.value()
+        // Reading a note is not editing it: the text comes back through the
+        // same normalising that wrote it, so an untouched note matches exactly.
+        if (text !== note()[phase]) typed[phase] = text
+      }
+      if (Object.keys(typed).length === 0) return Promise.resolve(true)
+      return persist((current) => ({ ...current, ...typed }))
     }
 
-    writer.node.addEventListener('focusout', (event) => {
-      // Moving between the toolbar and the writing is not leaving the note.
-      const to = event.relatedTarget
-      if (to instanceof Node && writer.node.contains(to)) return
-      inFlight = commitNote()
-    })
-    writer.node.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        panel.focus()
-        return
-      }
-      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault()
-        panel.focus()
-      }
-    })
+    for (const { writer } of writers) {
+      writer.node.addEventListener('focusin', () => { marking = writer })
+      writer.node.addEventListener('focusout', (event) => {
+        // Moving between a note's toolbar and its writing is not leaving it.
+        const to = event.relatedTarget
+        if (to instanceof Node && writer.node.contains(to)) return
+        inFlight = commitNotes()
+      })
+      writer.node.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation()
+          panel.focus()
+          return
+        }
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault()
+          panel.focus()
+        }
+      })
+    }
 
     redraw()
     drawn = true

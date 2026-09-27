@@ -23,10 +23,19 @@ import type { Clip } from './store.ts'
 import type { RawAnnotation } from './rows.ts'
 import type { Grade } from './tags.ts'
 
-/** What you wrote against one trade. */
+/**
+ * What you wrote against one trade.
+ *
+ * Three notes, in the order the trade happened, all written in review. Each is
+ * plain text, as typed; `notes.ts` reads the formatting back out of it.
+ */
 export interface Note {
-  /** Plain text, as typed. `notes.ts` reads the formatting back out of it. */
-  text: string
+  /** What you saw and why you took it. */
+  preTrade: string
+  /** What happened while it was open, and what you did. */
+  inTrade: string
+  /** The review: what you would do again, and what you would change. Kept as `note` in the record. */
+  postTrade: string
   /** Slugs from the vocabulary in `tags.ts`. */
   tags: string[]
   /** The setup at entry, or null until you grade it. */
@@ -38,11 +47,16 @@ export interface Note {
 /** A note's fields you write, without the timestamp the save supplies. */
 export type Written = Omit<Note, 'updatedAt'>
 
-const NOTHING: Note = { text: '', tags: [], grade: null, updatedAt: null }
+const NOTHING: Note = { preTrade: '', inTrade: '', postTrade: '', tags: [], grade: null, updatedAt: null }
+
+/** Whether any of the three notes has words in it. */
+export function hasWords(note: Note): boolean {
+  return note.preTrade.trim() !== '' || note.inTrade.trim() !== '' || note.postTrade.trim() !== ''
+}
 
 /** Whether a trade has been written up at all. */
 export function isBlank(note: Note): boolean {
-  return note.text.trim() === '' && note.tags.length === 0 && note.grade === null
+  return !hasWords(note) && note.tags.length === 0 && note.grade === null
 }
 
 export interface Margin {
@@ -60,7 +74,9 @@ export interface Margin {
 
 export function openMargin(accountId: string, rows: RawAnnotation[]): Margin {
   const notes = new Map<string, Note>(rows.map((row) => [row.position_id, {
-    text: row.note ?? '',
+    preTrade: row.pre_trade ?? '',
+    inTrade: row.in_trade ?? '',
+    postTrade: row.note ?? '',
     tags: row.tags,
     grade: row.grade,
     updatedAt: new Date(row.updated_at),
@@ -72,8 +88,10 @@ export function openMargin(accountId: string, rows: RawAnnotation[]): Margin {
     get,
 
     async save(positionId, written) {
-      const updatedAt = await saveAnnotation(accountId, positionId,
-        { note: written.text, tags: written.tags, grade: written.grade })
+      const updatedAt = await saveAnnotation(accountId, positionId, {
+        preTrade: written.preTrade, inTrade: written.inTrade, note: written.postTrade,
+        tags: written.tags, grade: written.grade,
+      })
       const note: Note = { ...written, updatedAt }
       // An emptied note stays as a row rather than being deleted: the record
       // should show that you went back and rubbed it out, not that you were

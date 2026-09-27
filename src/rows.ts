@@ -80,11 +80,16 @@ export interface RawFeed {
  * Keyed by the position the broker gave the trade, so a note stays attached to
  * its trade without the journal having to invent an id of its own.
  *
- * `note` is the plain text as typed — the formatting in `notes.ts` is a
+ * Each note is the plain text as typed — the formatting in `notes.ts` is a
  * reading of it, never stored.
  */
 export interface RawAnnotation {
   position_id: string
+  /** What you saw and why you took it. */
+  pre_trade: string | null
+  /** What happened while it was open, and what you did. */
+  in_trade: string | null
+  /** The post-trade review: the one note there was before there were three. */
   note: string | null
   /** `RawTag.slug`s. At most one of them is a play; `tags.ts` keeps that rule. */
   tags: string[]

@@ -18,7 +18,7 @@ import { CLOSED_BY } from './format.ts'
 import { icon } from './icons.ts'
 import type { Trade } from './journal.ts'
 import type { Margin } from './margin.ts'
-import { isBlank } from './margin.ts'
+import { hasWords, isBlank } from './margin.ts'
 import type { Vocabulary } from './tags.ts'
 import { GRADE_GUIDE, KINDS } from './tags.ts'
 import { endedAs, exitPrice, stopAt } from './view.ts'
@@ -190,7 +190,7 @@ export function createTable(entries: Entry[], context: ListContext): TradeList {
         more.dataset.tip = note.tags.map(vocabulary.label).join(' · ')
         marks.append(more)
       }
-      if (note.text.trim() !== '') {
+      if (hasWords(note)) {
         const wrote = h('span', 'has-note')
         wrote.dataset.tip = 'Has a note'
         wrote.append(icon('note'))

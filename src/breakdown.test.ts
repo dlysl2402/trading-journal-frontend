@@ -10,9 +10,9 @@ const kinds: Record<string, Kind> = {
 }
 const kindOf = (slug: string): Kind | undefined => kinds[slug]
 
-const note = (grade: Note['grade'], tags: string[] = [], text = ''): Note =>
-  ({ text, tags, grade, updatedAt: new Date('2026-09-20T00:00:00Z') })
-const blank: Note = { text: '', tags: [], grade: null, updatedAt: null }
+const note = (grade: Note['grade'], tags: string[] = [], postTrade = ''): Note =>
+  ({ preTrade: '', inTrade: '', postTrade, tags, grade, updatedAt: new Date('2026-09-20T00:00:00Z') })
+const blank: Note = { preTrade: '', inTrade: '', postTrade: '', tags: [], grade: null, updatedAt: null }
 
 test('a note files under its grade, or under its tags of one kind', () => {
   const written = note('A', ['trend-day', 'break-and-continue', 'first-hour'])

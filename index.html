@@ -699,7 +699,8 @@
   button.chip.stray { gap: 6px; background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn); }
   button.chip.stray .icon { width: 13px; height: 13px; }
   .chip-input { width: 200px; height: 28px !important; border-radius: 999px !important; padding: 0 12px !important; font-size: 13px !important; border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--focus); }
-  .notes { padding-bottom: 0; }
+  .notes { padding-bottom: 0; gap: 16px; }
+  .phase-note { display: grid; gap: 8px; }
   .note-foot { display: flex; justify-content: flex-end; }
 
   .onward { display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
@@ -714,7 +715,7 @@
   .tool.group { margin-left: 8px; }
   .tool:hover { background: var(--sunken-2); color: var(--ink); }
   .tool.on { background: var(--accent-soft); color: var(--accent-ink); }
-  .writing { position: relative; min-height: 190px; padding: 14px 16px; outline: none; cursor: text; font: 400 15px/1.65 var(--sans); color: var(--ink); }
+  .writing { position: relative; min-height: 104px; padding: 14px 16px; outline: none; cursor: text; font: 400 15px/1.65 var(--sans); color: var(--ink); }
   .writing.vacant::before { content: attr(data-placeholder); position: absolute; left: 16px; right: 16px; color: var(--muted); pointer-events: none; }
   /* Room for the tab strip above a line brought into view, and a little below it. */
   .writing > *, .writing li { scroll-margin: 76px 0 24px; }

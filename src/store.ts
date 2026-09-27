@@ -231,7 +231,7 @@ export async function readRecord(stored: Session): Promise<{ accountId: string; 
 export async function readAnnotations(accountId: string): Promise<RawAnnotation[]> {
   const session = await live()
   return selectAll<RawAnnotation>(session, 'annotations',
-    `account_id=eq.${encodeURIComponent(accountId)}&select=position_id,note,tags,grade,updated_at`)
+    `account_id=eq.${encodeURIComponent(accountId)}&select=position_id,pre_trade,in_trade,note,tags,grade,updated_at`)
 }
 
 /** The whole vocabulary, retired tags included — the page decides what to show. */
@@ -272,16 +272,19 @@ async function upsert(table: string, key: string, row: unknown, doing: string): 
  */
 export async function saveAnnotation(
   accountId: string, positionId: string,
-  margin: { note: string; tags: string[]; grade: RawAnnotation['grade'] },
+  margin: { preTrade: string; inTrade: string; note: string; tags: string[]; grade: RawAnnotation['grade'] },
 ): Promise<Date> {
   const updatedAt = new Date()
+  // An empty note is stored as null: the column is nullable, and a row of
+  // empty strings should read as nothing written rather than as a note you
+  // left blank.
+  const text = (note: string): string | null => note.trim() === '' ? null : note
   await upsert('annotations', 'account_id,position_id', {
     account_id: accountId,
     position_id: positionId,
-    // An empty note is stored as null: the column is nullable, and a row of
-    // empty strings should read as nothing written rather than as a note you
-    // left blank.
-    note: margin.note.trim() === '' ? null : margin.note,
+    pre_trade: text(margin.preTrade),
+    in_trade: text(margin.inTrade),
+    note: text(margin.note),
     tags: margin.tags,
     grade: margin.grade,
     updated_at: updatedAt.toISOString(),
