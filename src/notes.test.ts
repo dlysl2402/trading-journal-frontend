@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseInlines, parseNote, toMarkdown } from './notes.ts'
+import { parseInlines, parseNote, timecode, toMarkdown } from './notes.ts'
 
 /** The text of a block, ignoring which runs are bold — for the structural tests. */
 function text(block: { lines: { text: string }[][] } | { items: { text: string }[][] }): string[] {
@@ -88,6 +88,54 @@ test('nothing but whitespace parses to nothing', () => {
   assert.deepEqual(parseNote('   \n  \n'), [])
 })
 
+// ── Moments on the tape ─────────────────────────────────────────────────────
+
+test('a time in brackets is a moment on the tape', () => {
+  assert.deepEqual(parseInlines('[0:26] Entry on the close'), [
+    { kind: 'moment', text: '0:26', seconds: 26 },
+    { kind: 'text', text: ' Entry on the close' },
+  ])
+})
+
+test('a moment can sit anywhere in a line, and hours count', () => {
+  assert.deepEqual(parseInlines('the retest at [1:02:05] failed').filter((run) => run.kind === 'moment'),
+    [{ kind: 'moment', text: '1:02:05', seconds: 3725 }])
+})
+
+test('a moment is its own run in a list of them', () => {
+  const [block] = parseNote('- [0:26] in\n- [0:34] out')
+  assert.equal(block?.kind, 'list')
+  assert.deepEqual(block?.kind === 'list' && block.items.map((item) => item[0]),
+    [{ kind: 'moment', text: '0:26', seconds: 26 }, { kind: 'moment', text: '0:34', seconds: 34 }])
+})
+
+test('a clock time without brackets, or not a time at all, is text', () => {
+  for (const line of ['entered at 14:30', '[0:60]', '[1:2]', '[a:bc]', '[0:26', '`[0:26]`']) {
+    assert.ok(parseInlines(line).every((run) => run.kind !== 'moment'), line)
+  }
+})
+
+test('a line marked on the tape and left empty keeps no trailing space', () => {
+  const marked = [{ kind: 'list' as const, ordered: false, items: [[
+    { kind: 'moment' as const, text: '0:26', seconds: 26 }, { kind: 'text' as const, text: ' ' },
+  ]] }]
+  assert.equal(toMarkdown(marked), '- [0:26]')
+  assert.equal(toMarkdown(parseNote(toMarkdown(marked))), '- [0:26]')
+})
+
+test('a moment is written back in its shortest spelling', () => {
+  assert.equal(toMarkdown(parseNote('[00:26]')), '[0:26]')
+  assert.equal(toMarkdown(parseNote('[75:00] and [0:01:05]')), '[1:15:00] and [1:05]')
+})
+
+test('the tape and the note write a time the same way', () => {
+  assert.equal(timecode(0), '0:00')
+  assert.equal(timecode(26.9), '0:26')
+  assert.equal(timecode(605), '10:05')
+  assert.equal(timecode(3725), '1:02:05')
+  assert.equal(timecode(-3), '0:00')
+})
+
 // ── Writing it back down ────────────────────────────────────────────────────
 // The editor shows formatting rather than the marks that make it, so every
 // save turns elements back into text. These are the properties that keeps
@@ -114,6 +162,7 @@ const SETTLED = [
   '> wait for the retest\n> every time',
   'Some **bold**, some *italic*, some `code`, some ***both***.',
   '## Heading\n\nText.\n\n- a\n- b\n\n> quoted\n\nLast word.',
+  '- [0:26] Entry on the strong close\n- [0:34] Took most of it at **the level**\n\nThe retest at [0:31] held.',
 ]
 
 for (const text of SETTLED) {

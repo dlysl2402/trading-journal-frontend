@@ -62,6 +62,7 @@ the one change that needs both repositories in the same breath.
 | — | the sifting | `src/filter.ts` — which trades the list shows; `src/breakdown.ts` — the written-up trades grouped by grade or by tag. Both pure, and tested |
 | — | the tabs | `src/tabs.ts` — the overview and one tab per opened trade, and the address in the URL |
 | — | one trade | `src/trade.ts` — a trade drawn out in full, and where you write |
+| — | the tape | `src/tape.ts` — a trade's recording, played at the top of its tab, with the moments your note points at marked on it |
 | — | the words | `src/settings.ts` — the dialog where tags are named, described, ordered and retired |
 
 `src/store.ts` reads layer 1, writes layer 4, signs the clips and signs you in. `src/notes.ts`
@@ -84,14 +85,20 @@ so a session's worth of trades is written up in one pass rather than forty trips
 back to the list. Any row in the list opens its trade too, and so does a point
 on the curve.
 
-The trade opens in a tab of its own, beside the overview. On the left is what it
-was: the plan drawn as a line — stop to target, the entry between them and a dot
-where the trade left — with the result in R, how far price went your way in units
-of the stop it was opened with, when it was opened with one; then the four
+The trade opens in a tab of its own, beside the overview. On the left, first, is
+its recording — the replay, or the highlight reel cut from it — large, because
+every other thing on the tab is about it. It stays where it is on the page
+rather than following you down it. A trade with no recording yet shows an empty screen there, and
+a video dropped anywhere on the tab goes onto it. Under the tape is what the
+trade was: the plan drawn as a line — stop to target, the entry between them and
+a dot where the trade left — with the result in R, how far price went your way in
+units of the stop it was opened with, when it was opened with one; then the four
 prices, with the stop as it was placed *and* as it ended, and how far a fill
 landed from the level that fired it. A trade closed in pieces lists each piece;
 nothing else is said twice. On the right is your read of it: a grade, your tags,
-and your note. Open as many as you like; the strip under the header switches
+and your note. The week's biggest win and biggest loss say so under their
+result: they are the ones worth taking apart moment by moment, where most trades
+need a grade and a tag and no more. Open as many as you like; the strip under the header switches
 between them, and the overview comes back scrolled to where you left it. A
 trade already open goes to its tab rather than opening twice. The time in a
 row is a link to the trade's address (`#trade/<position id>`), so a ⌘-click or
@@ -105,9 +112,24 @@ the ones done. Press a filter again to let it go. A day on the calendar narrows 
 trigger or mistake, with what each group came to — to that group. The figures
 above the list are always every trade; only the list narrows.
 
+**The tape is written about, moment by moment.** Watch it and press `M` where
+something happens — the setup forming, the entry, the first piece off — and the
+tape stops there and the time goes into the note, as a line of its own in time
+order, with the caret after it for what you saw. `Esc` puts the pen down and `K`
+plays on. A time in the note is written `[0:26]`, so it reads as a time in the
+stored text too; in the note it is a chip that plays the tape from there, and on
+the scrubber it is a pin, lit as the tape passes it. `Shift M` marks without
+stopping, and so does `M` full screen, for marking as you watch and writing up
+after; the clock in the note's toolbar puts the tape's time where the caret is,
+and typing `[0:31]` makes one too. The tape's keys work from anywhere on the tab:
+`K` or space to play, `J` and `L` five seconds back and on, `,` and `.` a frame
+at a time, `<` and `>` for the speed, which this browser keeps, `0` to `9` for a
+tenth of the way through, and `F` for full screen. A tab that goes out of sight
+stops its tape.
+
 **The grade** is A, B or C for the setup as it looked at entry, never for how
-it ended; the result already has a column. Click a letter to set it and the
-lit one again to clear it.
+it ended; the result already has a column. Click a letter, or press it, to set
+it, and the lit one again to clear it.
 
 **Tags are picked, not typed.** They come in four kinds. On a trade each is
 one row, its name and its words; the ⓘ beside the name gives the question the
@@ -154,10 +176,12 @@ them off it.
 second copy: `annotations.note` holds Markdown you could open in any editor, so
 a note stays legible in a SQL client and portable out of here. Formatting is
 turned back into text on every save, and `notes.ts` writes one spelling of each
-thing — `##` for headings, `-` for bullets, numbers counting from one — so
-opening a note and closing it again is not an edit. What the editor cannot
-describe, it does not keep: pasted markup arrives as plain text, and the
-document stays inside four kinds of block and five kinds of run.
+thing — `##` for headings, `-` for bullets, numbers counting from one, `[0:26]`
+for a moment — so opening a note and closing it again is not an edit. What the
+editor cannot describe, it does not keep: pasted markup arrives as plain text,
+and the document stays inside four kinds of block and six kinds of run. A
+moment is a time on whichever recording is on screen; a trade with more than
+one picks between them above the tape.
 
 ## Setting it up
 

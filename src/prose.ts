@@ -15,6 +15,7 @@
 
 import { h } from './dom.ts'
 import type { Block, Inline } from './notes.ts'
+import { timecode } from './notes.ts'
 
 /** Which tags mean which mark, on the way back from elements to runs. */
 const BOLD = new Set(['B', 'STRONG'])
@@ -35,7 +36,29 @@ const BLOCKY = new Set([...HEADINGS, 'P', 'DIV', 'UL', 'OL', 'LI', 'BLOCKQUOTE']
 
 interface Marks { bold: boolean; italic: boolean; code: boolean }
 
-function kindOf(marks: Marks): Inline['kind'] {
+/**
+ * A moment as the editor shows it: a chip that plays the tape from there.
+ *
+ * Not editable, so it is one thing to the caret — backspace takes the whole
+ * time, never one digit of it — and it carries its seconds as data, so what
+ * it says and where it points cannot come apart.
+ */
+export function momentChip(seconds: number): HTMLElement {
+  const chip = h('span', 'moment', timecode(seconds))
+  chip.contentEditable = 'false'
+  chip.dataset.seconds = String(Math.floor(seconds))
+  chip.dataset.tip = 'Play from ' + timecode(seconds)
+  return chip
+}
+
+/** The seconds a moment chip points at, or null for anything else. */
+export function secondsAt(node: Node): number | null {
+  if (!(node instanceof HTMLElement) || !node.classList.contains('moment')) return null
+  const seconds = Number(node.dataset.seconds)
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null
+}
+
+function kindOf(marks: Marks): Exclude<Inline['kind'], 'moment'> {
   // Code is verbatim, so it cannot also be bold — the mark that changes what
   // the characters *mean* wins over the ones that change how they look.
   if (marks.code) return 'code'
@@ -62,8 +85,10 @@ function readLines(from: Element): Inline[][] {
   const walk = (node: Node, marks: Marks): void => {
     for (const child of node.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
-        // A contenteditable pads with non-breaking spaces; they are spaces.
-        const text = (child.textContent ?? '').replaceAll('\u00a0', ' ')
+        // A contenteditable pads with non-breaking spaces; they are spaces. The
+        // zero-width space is one the editor left to stand the caret beside a
+        // moment, and is not part of what you wrote.
+        const text = (child.textContent ?? '').replaceAll('\u00a0', ' ').replaceAll('\u200b', '')
         if (text === '') continue
         const kind = kindOf(marks)
         const line = lines[lines.length - 1]!
@@ -76,6 +101,13 @@ function readLines(from: Element): Inline[][] {
       }
       if (!(child instanceof HTMLElement)) continue
       if (child.tagName === 'BR') { lines.push([]); continue }
+      // A moment is read from its data, not its text: the chip says the time,
+      // and the time it says is written back from the seconds it carries.
+      const seconds = secondsAt(child)
+      if (seconds !== null) {
+        lines[lines.length - 1]!.push({ kind: 'moment', text: timecode(seconds), seconds })
+        continue
+      }
       // A block inside a block is a new line, so two paragraphs wrapped in a
       // quote do not come back as one run-on sentence.
       if (BLOCKY.has(child.tagName) && lines[lines.length - 1]!.length > 0) lines.push([])
@@ -115,11 +147,18 @@ function collect(root: Node, blocks: Block[]): void {
   for (const node of root.childNodes) {
     if (node.nodeType === Node.TEXT_NODE) {
       // A bare text node at the top, from a paste or a stripped block.
-      const text = (node.textContent ?? '').replaceAll('\u00a0', ' ')
+      const text = (node.textContent ?? '').replaceAll('\u00a0', ' ').replaceAll('\u200b', '')
       if (text.trim() !== '') blocks.push({ kind: 'paragraph', lines: [[{ kind: 'text', text }]] })
       continue
     }
     if (!(node instanceof HTMLElement) || node.tagName === 'BR') continue
+
+    // A moment left at the top, outside any block, by an edit that took its line away.
+    const seconds = secondsAt(node)
+    if (seconds !== null) {
+      blocks.push({ kind: 'paragraph', lines: [[{ kind: 'moment', text: timecode(seconds), seconds }]] })
+      continue
+    }
 
     if (node.tagName === 'UL' || node.tagName === 'OL') {
       const items = [...node.children]
@@ -153,13 +192,14 @@ function collect(root: Node, blocks: Block[]): void {
 
 // ── runs → elements ─────────────────────────────────────────────────────────
 
-const TAGS: Record<Inline['kind'], string[]> = {
+const TAGS: Record<Exclude<Inline['kind'], 'moment'>, string[]> = {
   text: [], bold: ['strong'], italic: ['em'], 'bold-italic': ['strong', 'em'], code: ['code'],
 }
 
 /** Runs as elements, with the text always set through `textContent`. */
 function writeInlines(inlines: Inline[], into: HTMLElement): void {
   for (const run of inlines) {
+    if (run.kind === 'moment') { into.append(momentChip(run.seconds)); continue }
     const tags = TAGS[run.kind]
     if (tags.length === 0) { into.append(run.text); continue }
     // Built outside in, so bold-italic is <strong><em>, and the text lands in

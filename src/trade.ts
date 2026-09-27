@@ -1,35 +1,44 @@
 /**
- * One trade, opened up — and the place you write about it.
+ * One trade, opened up — and the place you review it.
  *
  * The list answers "what happened"; this answers "what happened, exactly, and
- * what did I think of it". It holds the facts the list has no room for — the
- * plan drawn against the outcome, each exit with the level that fired it and
- * how far off the fill was, a stop shown as it was placed *and* as it ended —
- * and beside them the margin: your grade, your tags and your note.
+ * what did I think of it". The recording leads: it is the trade as it
+ * happened, so it takes the top of the tab, and the note can point into it
+ * moment by moment — see `tape.ts`. Under it are the facts the list has no room for — the plan
+ * drawn against the outcome, each exit with the level that fired it and how
+ * far off the fill was, a stop shown as it was placed *and* as it ended —
+ * and beside them the margin: your grade, your tags and your note, in the
+ * order a review asks for them. The grade first, for the setup as it looked
+ * before the result was known; then why this trade, why then, what shape;
+ * then what you would take back; then the tape, in words.
  *
- * Two columns on a wide screen, the broker's side on the left and yours on the
- * right, so the trade stays in view while you write about it; one column, the
- * same order, on a narrow one.
+ * Two columns on a wide screen, the tape and the broker's side on the left
+ * and yours on the right; one column, the same order, on a narrow one.
  *
  * Nothing here has a save button you have to press. A grade or a tag is a
  * click, and the click is the save. The note saves when you leave it, and the
  * button under it is there for saving without leaving, and for being sure.
+ * Every one of those is a key as well, so a review can be done without the
+ * mouse: A, B or C grades, M marks the tape, N moves on.
  *
  * This draws one panel and knows nothing about where it is shown; `tabs.ts`
  * gives each open trade its own tab and asks here for the panel to put in it.
  */
 
 import { h } from './dom.ts'
+import type { Editor } from './editor.ts'
+import { createEditor } from './editor.ts'
 import type { Format } from './format.ts'
 import { CLOSED_BY, CLOSED_HOW } from './format.ts'
 import { icon } from './icons.ts'
 import type { ExitFill, Level, Trade } from './journal.ts'
 import type { Margin, Note, Written } from './margin.ts'
 import { isBlank } from './margin.ts'
-import { createEditor } from './editor.ts'
-import type { Kind, Vocabulary } from './tags.ts'
+import type { Grade, Kind, Vocabulary } from './tags.ts'
 import { GRADES, GRADE_GUIDE, KINDS, toggled } from './tags.ts'
+import { createTape } from './tape.ts'
 import { tipMark } from './tips.ts'
+import type { Standing } from './view.ts'
 import { closedAt, endedAs, exitPrice, inFavour, multipleOf, plannedRatio, returnOf } from './view.ts'
 
 const PROMPT = 'What did you see, why did you take it, and what would you do again?'
@@ -54,6 +63,10 @@ export interface Panel {
   settled: () => Promise<boolean>
   /** Redraw the grade and the chips, after the vocabulary changed under them. */
   refresh: () => void
+  /** Stop the tape, because the panel is going out of sight. */
+  pause: () => void
+  /** A key pressed with nothing focused, handled as if the panel had it. */
+  key: (event: KeyboardEvent) => void
 }
 
 /** What the panel needs from whoever is showing it. */
@@ -61,6 +74,8 @@ export interface Place {
   /** Where this trade sits in the list's order, and how long that order is. */
   index: number
   count: number
+  /** Whether it was its week's biggest win or loss, the trades worth the deepest review. */
+  standing: Standing | null
   /** Move this panel's tab to the next trade in that order; nothing happens if there is none that way. */
   step: (by: number) => void
   /** Move this panel's tab to the next trade with nothing written against it. */
@@ -100,6 +115,23 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
   }
 
   let refresh = (): void => {}
+  /** Set a grade from the keyboard, as its button would. */
+  let grade = (_: Grade): void => {}
+
+  // ── the tape, and the note that points into it ───────────────────────────
+
+  // Each needs the other: marking the tape writes in the note, and a moment
+  // in the note plays the tape. The note is made with the margin, below.
+  let editor: Editor | null = null
+  const tape = createTape({
+    clips: () => margin.clips(trade.positionId),
+    addClip: (file, progress) => margin.addClip(trade.positionId, file, progress),
+    mark: (seconds, quiet) => { editor?.addMoment(seconds, !quiet) },
+    at: (seconds) => {
+      editor?.light(seconds)
+      editor?.tapeReady(seconds !== null)
+    },
+  })
 
   // ── the plan, and what became of it ──────────────────────────────────────
 
@@ -337,10 +369,12 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     /**
      * Each kind of thing you can mark is one row: its name, and a hover away
      * on the mark beside it the question it answers and how to tell it from
-     * the others. The Tags dialog keeps all of it in one place.
+     * the others. The Tags dialog keeps all of it in one place. The name sits
+     * beside what you pick from where there is room, so the whole review fits
+     * next to the tape.
      */
     const group = (title: string, asks: string, means: string): { row: HTMLElement; head: HTMLElement } => {
-      const row = h('div', 'mark')
+      const row = h('div', 'mark row')
       const top = h('div', 'mark-head')
       top.append(h('span', 'mark-label', title), tipMark(asks + ' ' + means, 'About ' + title.toLowerCase()))
       row.append(top)
@@ -350,20 +384,29 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     const redraws: (() => void)[] = []
     const redraw = (): void => { for (const draw of redraws) draw() }
     refresh = redraw
+    /** Whether the review has been drawn once, since the first drawing only shows what was kept. */
+    let drawn = false
 
-    // Grade: three letters, one lit. The lit one clicked again clears it.
+    // Grade: three letters, one lit. The lit one clicked again clears it, and
+    // so does its key pressed again.
+    const setGrade = (letter: Grade): void => {
+      change((current) => ({ ...current, grade: current.grade === letter ? null : letter }))
+    }
+    grade = setGrade
     const grading = group('Setup grade', GRADE_GUIDE.asks, GRADE_GUIDE.means)
+    grading.row.classList.add('grading')
     const letters = h('div', 'grades')
     letters.setAttribute('role', 'group')
     letters.setAttribute('aria-label', 'Setup grade')
-    for (const grade of GRADES) {
-      const button = h('button', 'grade', grade) as HTMLButtonElement
+    for (const letter of GRADES) {
+      const button = h('button', 'grade', letter) as HTMLButtonElement
       button.type = 'button'
-      button.addEventListener('click', () => {
-        change((current) => ({ ...current, grade: current.grade === grade ? null : grade }))
-      })
+      button.dataset.tip = 'Or press ' + letter
+      button.addEventListener('click', () => { setGrade(letter) })
       redraws.push(() => {
-        const on = note().grade === grade
+        const on = note().grade === letter
+        // Only a grade just given lands with a flourish, not one the trade opened with.
+        button.classList.toggle('fresh', on && drawn && !button.classList.contains('on'))
         button.classList.toggle('on', on)
         button.setAttribute('aria-pressed', String(on))
       })
@@ -376,6 +419,9 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     for (const guide of KINDS) {
       const box = group(guide.title, guide.asks, guide.means)
       const chips = h('div', 'chips kind-' + guide.kind)
+      // What was lit before this drawing, so only a tag just put on lands with
+      // a flourish; null until the first drawing, which lights without one.
+      let lit: Set<string> | null = null
       const drawChips = (): void => {
         const carried = note().tags
         chips.replaceChildren()
@@ -385,6 +431,7 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
           if (tag.description) chip.dataset.tip = tag.description
           const on = carried.includes(tag.slug)
           chip.classList.toggle('on', on)
+          chip.classList.toggle('fresh', on && lit !== null && !lit.has(tag.slug))
           chip.setAttribute('aria-pressed', String(on))
           chip.addEventListener('click', () => {
             change((current) => ({ ...current, tags: toggled(current.tags, tag, vocabulary.kindOf) }))
@@ -392,6 +439,7 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
           chips.append(chip)
         }
         chips.append(adder(guide.kind))
+        lit = new Set(carried)
       }
       redraws.push(drawChips)
       box.row.append(chips)
@@ -433,7 +481,8 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
       const add = h('button', 'chip add') as HTMLButtonElement
       add.type = 'button'
       add.setAttribute('aria-label', 'Add a new ' + kind + ' tag')
-      add.append(icon('plus'), 'New')
+      add.dataset.tip = 'New ' + kind + ' tag'
+      add.append(icon('plus'))
       add.addEventListener('click', () => {
         const input = document.createElement('input')
         input.type = 'text'
@@ -467,13 +516,19 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
       return add
     }
 
-    // The note: always the editor, never a box you switch into.
+    // The note: always the editor, never a box you switch into, and the place
+    // the tape is written about — its moments are marks on the scrubber.
     const writing = h('div', 'mark notes')
     const notesHead = h('div', 'mark-head')
     notesHead.append(h('span', 'mark-label', 'Notes'))
     writing.append(notesHead)
-    const editor = createEditor(PROMPT)
-    editor.set(note().text)
+    const writer = createEditor(PROMPT, {
+      now: tape.now,
+      seek: tape.seek,
+      changed: () => { tape.moments(writer.moments()) },
+    })
+    editor = writer
+    writer.set(note().text)
 
     // Leaving the note saves it; this is for saving without leaving, and for
     // being sure. It keeps the caret where it was, so you can write on.
@@ -484,7 +539,7 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     save.addEventListener('mousedown', (event) => { event.preventDefault() })
     save.addEventListener('click', () => { inFlight = commitNote() })
     foot.append(save)
-    writing.append(editor.node, foot)
+    writing.append(writer.node, foot)
     section.append(writing)
 
     /**
@@ -493,20 +548,20 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
      * as they are now.
      */
     function commitNote(): Promise<boolean> {
-      const text = editor.value()
+      const text = writer.value()
       // Reading a note is not editing it: the text comes back through the same
       // normalising that wrote it, so an untouched note matches exactly.
       if (text === note().text) return Promise.resolve(true)
       return persist((current) => ({ ...current, text }))
     }
 
-    editor.node.addEventListener('focusout', (event) => {
+    writer.node.addEventListener('focusout', (event) => {
       // Moving between the toolbar and the writing is not leaving the note.
       const to = event.relatedTarget
-      if (to instanceof Node && editor.node.contains(to)) return
+      if (to instanceof Node && writer.node.contains(to)) return
       inFlight = commitNote()
     })
-    editor.node.addEventListener('keydown', (event) => {
+    writer.node.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.stopPropagation()
         panel.focus()
@@ -519,101 +574,10 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     })
 
     redraw()
+    drawn = true
     const at = note().updatedAt
     if (at !== null && !isBlank(note())) say('idle', 'Saved ' + wrote(at))
     else say('idle', '')
-    return section
-  }
-
-  // ── the tape ─────────────────────────────────────────────────────────────
-
-  /**
-   * The clips recorded against this trade, streamed from the record, and the
-   * way a new one gets in.
-   *
-   * Asked for as the panel is drawn, not as the page loads: a trade you never
-   * open never costs a request, and a signed URL outlives any tab. The player
-   * fetches only what it plays, enough to learn the length and then the
-   * stretches you watch or scrub to, so a long recording opens at once and
-   * is never downloaded whole.
-   *
-   * Adding one is a single request carrying the whole file, with a bar that
-   * fills as it goes, because a long recording on a home uplink takes
-   * minutes. It is not waited for the way a save is: closing the tab or
-   * stepping to the next trade stops showing it, not sending it, and the
-   * clip is there the next time this trade is opened.
-   */
-  function tape(): HTMLElement {
-    const section = h('section', 'card tape')
-    const head = h('header', 'card-head')
-    const reel = h('div', 'reel')
-    const status = h('div', 'upload')
-    status.hidden = true
-    const bar = h('div', 'progress')
-    const fillBar = h('i')
-    bar.append(fillBar)
-    const words = h('span', 'saved')
-
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = 'video/mp4'
-    input.hidden = true
-    const add = h('button', 'btn secondary small') as HTMLButtonElement
-    add.type = 'button'
-    add.dataset.tip = 'An MP4 of this trade, from your screen recording'
-    add.append(icon('upload'), 'Add recording')
-    add.addEventListener('click', () => input.click())
-
-    const failed = (error: unknown): void => {
-      status.hidden = false
-      bar.hidden = true
-      words.className = 'saved failed'
-      words.replaceChildren(icon('alert'), error instanceof Error ? error.message : String(error))
-    }
-
-    /** Draw every clip the folder holds now. */
-    async function fill(): Promise<void> {
-      const clips = await margin.clips(trade.positionId)
-      reel.replaceChildren(...clips.map((clip) => {
-        const figure = h('figure', 'clip')
-        const video = document.createElement('video')
-        video.controls = true
-        video.preload = 'metadata'
-        video.src = clip.url
-        figure.append(video, h('figcaption', '', clip.name))
-        return figure
-      }))
-    }
-
-    input.addEventListener('change', () => {
-      const file = input.files?.[0]
-      // Cleared so the same file, picked again after a refusal, counts as a pick.
-      input.value = ''
-      if (file === undefined) return
-      add.disabled = true
-      status.hidden = false
-      bar.hidden = false
-      fillBar.style.width = '0%'
-      words.className = 'saved working'
-      words.replaceChildren('Uploading ' + file.name + '…')
-      margin.addClip(trade.positionId, file, (fraction) => {
-        fillBar.style.width = Math.floor(fraction * 100) + '%'
-        words.replaceChildren(`Uploading ${file.name}… ${Math.floor(fraction * 100)}%`)
-      })
-        .then(fill)
-        .then(() => {
-          bar.hidden = true
-          words.className = 'saved done'
-          words.replaceChildren(icon('check'), 'Added ' + file.name)
-        })
-        .catch(failed)
-        .finally(() => { add.disabled = false })
-    })
-
-    fill().catch(failed)
-    head.append(h('h3', '', 'Recordings'), add)
-    status.append(bar, words)
-    section.append(head, reel, status, input)
     return section
   }
 
@@ -691,34 +655,80 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     CLOSED_HOW[endedAs(trade)],
   ].join(' · ')))
 
-  // One figure, net of costs: what the trade did to the account.
+  // One figure, net of costs: what the trade did to the account — and, for the
+  // week's biggest either way, a word that this is one to take apart.
   const result = h('div', 'trade-result')
   result.append(h('div', 'trade-net ' + tone(net), signed(net)))
+  if (place.standing !== null) {
+    const standout = h('span', 'standout ' + place.standing,
+      place.standing === 'best' ? 'Week’s biggest win' : 'Week’s biggest loss')
+    standout.dataset.tip = 'The trades that moved the account most are the ones worth reviewing moment by moment.'
+    result.append(standout)
+  }
   const header = h('header', 'trade-head')
   header.append(identity, result)
 
+  // The tape and the broker's side, then yours.
   const facts = h('div', 'trade-col')
-  facts.append(plan(), tape())
+  facts.append(tape.node, plan())
   const yours = h('div', 'trade-col')
   yours.append(margins(), onward)
   const body = h('div', 'trade-body')
   body.append(facts, yours)
 
-  // The broker's side, then yours.
   panel.append(top, header, body)
 
-  panel.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') { place.close(); return }
-    // Arrow keys belong to whatever is being typed in — a note, a new tag —
-    // and only move between trades from everywhere else.
+  function onKey(event: KeyboardEvent): void {
+    // Escape leaves full screen before it closes anything.
+    if (event.key === 'Escape') { if (document.fullscreenElement === null) place.close(); return }
+    // Keys belong to whatever is being typed in — a note, a new tag — and
+    // only move the tab or the tape from everywhere else.
     const target = event.target
     const typing = target instanceof HTMLElement &&
       (target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)
     if (typing || event.metaKey || event.ctrlKey || event.altKey) return
+    // A button pressed with the mouse keeps the focus, and space would press
+    // it again: space is the tape's, unless the button was reached by keyboard.
+    if (event.key === ' ' && target instanceof HTMLButtonElement && target.matches(':focus-visible')) return
+    const letter = GRADES.find((one) => one === event.key.toUpperCase())
     if (event.key === 'ArrowLeft') { event.preventDefault(); place.step(-1) }
-    if (event.key === 'ArrowRight') { event.preventDefault(); place.step(1) }
-    if (event.key === 'n' || event.key === 'N') { event.preventDefault(); if (place.unwritten() > 0) place.next() }
+    else if (event.key === 'ArrowRight') { event.preventDefault(); place.step(1) }
+    else if (event.key === 'n' || event.key === 'N') { event.preventDefault(); if (place.unwritten() > 0) place.next() }
+    else if (letter !== undefined) { event.preventDefault(); grade(letter) }
+    else if (tape.key(event)) event.preventDefault()
+  }
+  panel.addEventListener('keydown', onKey)
+
+  /*
+   * A recording dragged onto the tab goes on its tape, wherever it is let go:
+   * the whole tab is the target, so there is no small box to aim for, and a
+   * file dropped beside the tape is not opened by the browser in its place.
+   */
+  let over = 0
+  const carriesFiles = (event: DragEvent): boolean => event.dataTransfer?.types.includes('Files') ?? false
+  panel.addEventListener('dragenter', (event) => {
+    if (!carriesFiles(event)) return
+    over++
+    panel.classList.add('dropping')
+  })
+  panel.addEventListener('dragleave', (event) => {
+    if (!carriesFiles(event)) return
+    over = Math.max(0, over - 1)
+    if (over === 0) panel.classList.remove('dropping')
+  })
+  panel.addEventListener('dragover', (event) => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer!.dropEffect = 'copy'
+  })
+  panel.addEventListener('drop', (event) => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    over = 0
+    panel.classList.remove('dropping')
+    const file = event.dataTransfer?.files[0]
+    if (file !== undefined) tape.add(file)
   })
 
-  return { node: panel, settled, refresh: () => refresh() }
+  return { node: panel, settled, refresh: () => refresh(), pause: tape.pause, key: onKey }
 }

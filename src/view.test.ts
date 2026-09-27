@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Trade } from './journal.ts'
-import { costsOf, endedAs, equityCurve, exitPrice, inFavour, multipleOf, netOf, plannedRatio, returnOf, stopAt } from './view.ts'
+import { costsOf, endedAs, equityCurve, exitPrice, inFavour, multipleOf, netOf, plannedRatio, returnOf, standouts, stopAt } from './view.ts'
 
 /*
  * There were two tests here that no longer have anything to test. The page
@@ -84,6 +84,28 @@ test('a result in R is the exit\'s distance over the stop placed with the entry,
   short.exits = [{ ...long.exits[0]!, price: 97 }]
   assert.equal(multipleOf(short), 1.5)
   assert.equal(plannedRatio(short), 3)
+})
+
+test('each week marks its biggest win and its biggest loss', () => {
+  const week = [
+    trade('small', 5, '2026-09-14T10:00:00Z', '2026-09-14T10:05:00Z'),
+    trade('big', 40, '2026-09-16T10:00:00Z', '2026-09-16T10:05:00Z'),
+    trade('bad', -30, '2026-09-17T10:00:00Z', '2026-09-17T10:05:00Z'),
+    trade('loss', -10, '2026-09-18T10:00:00Z', '2026-09-18T10:05:00Z'),
+    // Sunday belongs to the week that began on the Monday before it.
+    trade('sunday', -35, '2026-09-20T10:00:00Z', '2026-09-20T10:05:00Z'),
+  ]
+  assert.deepEqual([...standouts(week)].sort(), [['big', 'best'], ['sunday', 'worst']])
+})
+
+test('a week of one trade, or of nothing but losses, has no biggest win', () => {
+  const alone = [trade('alone', 50, '2026-09-07T10:00:00Z', '2026-09-07T10:05:00Z')]
+  assert.equal(standouts(alone).size, 0)
+  const red = [
+    trade('a', -5, '2026-09-14T10:00:00Z', '2026-09-14T10:05:00Z'),
+    trade('b', -9, '2026-09-15T10:00:00Z', '2026-09-15T10:05:00Z'),
+  ]
+  assert.deepEqual([...standouts(red)], [['b', 'worst']])
 })
 
 test('a stop set after entry, or trailed, is not what the trade risked', () => {

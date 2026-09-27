@@ -27,7 +27,7 @@ import { isBlank } from './margin.ts'
 import type { Vocabulary } from './tags.ts'
 import type { Panel } from './trade.ts'
 import { drawTrade } from './trade.ts'
-import { closedAt, returnOf } from './view.ts'
+import { closedAt, returnOf, standouts } from './view.ts'
 
 const HASH = /^#trade\/(.+)$/
 const STORED = 'journal:tabs'
@@ -64,6 +64,7 @@ export function createTabs(
   const { day, side, signed, tone } = format
 
   const byId = new Map(trades.map((trade, index) => [trade.positionId, index]))
+  const standing = standouts(trades)
   const drawing = { format, margin, vocabulary, saved }
 
   const tabs: Tab[] = []
@@ -136,6 +137,7 @@ export function createTabs(
     return drawTrade(trade, {
       index,
       count: trades.length,
+      standing: standing.get(trade.positionId) ?? null,
       step: (by) => { void step(tab, by) },
       next: () => {
         const next = unwrittenAfter(tab.positionId)
@@ -184,7 +186,11 @@ export function createTabs(
   function show(next: Tab | null, focus = true): void {
     if (next === current) { if (focus && next !== null) next.panel.node.focus({ preventScroll: true }); return }
     if (current === null) overviewScrollY = window.scrollY
-    else current.scrollY = window.scrollY
+    else {
+      current.scrollY = window.scrollY
+      // A hidden tab would go on playing its tape, sound and all, out of sight.
+      current.panel.pause()
+    }
 
     current = next
     overview.hidden = next !== null
@@ -279,6 +285,17 @@ export function createTabs(
     if (tab !== null) show(tab, false)
     else remember()
   }
+
+  /*
+   * A key pressed with nothing focused — after a reload, which puts a tab
+   * back without taking the focus, or a click on the page around it — is
+   * meant for the trade on show, so its tape and its keys answer.
+   */
+  document.addEventListener('keydown', (event) => {
+    if (current === null || event.defaultPrevented) return
+    if (event.target !== document.body && event.target !== document.documentElement) return
+    current.panel.key(event)
+  })
 
   window.addEventListener('hashchange', () => {
     const wanted = inHash()

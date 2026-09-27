@@ -108,6 +108,37 @@ export function plannedRatio(trade: Trade): number | null {
   return reward > 0 ? reward / risk : null
 }
 
+/** A trade that stood out from its week: the one that moved the account most, either way. */
+export type Standing = 'best' | 'worst'
+
+/** The Monday a moment's week began on, on the broker's clock, as YYYY-MM-DD. */
+function weekOf(at: Date): string {
+  const sinceMonday = (at.getUTCDay() + 6) % 7
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate() - sinceMonday))
+    .toISOString().slice(0, 10)
+}
+
+/**
+ * Each week's biggest win and biggest loss, by position id.
+ *
+ * Most trades need a grade and a tag and nothing more; the ones that moved
+ * the account most are the ones worth taking apart moment by moment. A week
+ * rather than a day, because at a handful of trades a day nearly every trade
+ * would be the biggest something. A week of one trade has nothing to stand
+ * out from, and a week with no loss has no biggest loss.
+ */
+export function standouts(trades: Trade[]): Map<string, Standing> {
+  const standing = new Map<string, Standing>()
+  for (const week of Map.groupBy(trades, (trade) => weekOf(closedAt(trade))).values()) {
+    if (week.length < 2) continue
+    const ranked = week.toSorted((a, b) => returnOf(b) - returnOf(a))
+    const best = ranked[0]!, worst = ranked[ranked.length - 1]!
+    if (returnOf(best) > 0) standing.set(best.positionId, 'best')
+    if (returnOf(worst) < 0) standing.set(worst.positionId, 'worst')
+  }
+  return standing
+}
+
 /**
  * Growth over time, one point per closed trade, starting at one at midnight
  * of the day the first trade opened so the line begins on the baseline and

@@ -11,7 +11,8 @@
  * this is a parser rather than a handful of replacements.
  *
  * The subset is the part of Markdown a trade write-up actually reaches for and
- * stops there. Anything else is the characters you typed.
+ * stops there, plus one thing of its own: a moment on the tape, written
+ * `[0:26]`. Anything else is the characters you typed.
  */
 
 /**
@@ -20,7 +21,11 @@
  * Bold and italic together are their own kind rather than a set of marks. The
  * editor lets you press both, so the pair has to survive being written down —
  * but nothing else combines (code is verbatim by definition), and a list of
- * five kinds stays simpler to read than a bag of booleans on every run.
+ * six kinds stays simpler to read than a bag of booleans on every run.
+ *
+ * A moment is a place on the trade's recording, so that "the retest at 0:31"
+ * can be played rather than scrubbed for. Its text is the time as the note
+ * writes it, which is also how the tape shows it.
  */
 export type Inline =
   | { kind: 'text'; text: string }
@@ -28,6 +33,7 @@ export type Inline =
   | { kind: 'italic'; text: string }
   | { kind: 'bold-italic'; text: string }
   | { kind: 'code'; text: string }
+  | { kind: 'moment'; text: string; seconds: number }
 
 /**
  * A paragraph and a quote hold lines rather than one run of text: a single
@@ -47,25 +53,50 @@ const NUMBER = /^\d+[.)]\s+(.*)$/
 const QUOTE = /^>\s?(.*)$/
 
 /**
- * Code first, so a star inside backticks stays a star; then the longest run of
- * stars down to the shortest, so `***` is read as both marks rather than as a
- * bold that starts with an empty italic. All are lazy, so two bold runs on one
- * line are two runs rather than everything between the first and the last.
+ * Code first, so a star inside backticks stays a star; then a moment, so a
+ * time in brackets is a place on the tape; then the longest run of stars down
+ * to the shortest, so `***` is read as both marks rather than as a bold that
+ * starts with an empty italic. All are lazy, so two bold runs on one line are
+ * two runs rather than everything between the first and the last.
+ *
+ * A moment needs its brackets. A bare "14:30" in a note is far more often the
+ * clock than the tape, and reading it as a place in the recording would send
+ * a click fourteen minutes into a two-minute clip.
  *
  * Underscores are not italics here. They turn up in symbol names often enough
  * that `EURUSD_raw` would come back with a word missing.
  */
-const INLINE = /`([^`]+)`|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*/g
+const INLINE = /`([^`]+)`|\[(\d{1,3}(?::[0-5]\d){1,2})\]|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*/g
+
+/**
+ * A place on the tape as a note and the player both write it: "0:26", "12:05",
+ * and "1:02:05" once there are hours. Whole seconds, rounded down, so the
+ * moment you paused on is never a moment you had not reached yet.
+ */
+export function timecode(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(whole / 3600), minutes = Math.floor(whole / 60) % 60
+  const rest = String(whole % 60).padStart(2, '0')
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`
+}
+
+/** "0:26" or "1:02:05" as seconds: the last part is seconds, the one before minutes, the first hours. */
+function secondsOf(written: string): number {
+  return written.split(':').reduce((total, part) => total * 60 + Number(part), 0)
+}
 
 /** One line, split into its runs. */
 export function parseInlines(line: string): Inline[] {
   const inlines: Inline[] = []
   let at = 0
   for (const match of line.matchAll(INLINE)) {
-    const [whole, code, both, bold, italic] = match
+    const [whole, code, moment, both, bold, italic] = match
     if (match.index > at) inlines.push({ kind: 'text', text: line.slice(at, match.index) })
     if (code !== undefined) inlines.push({ kind: 'code', text: code })
-    else if (both !== undefined) inlines.push({ kind: 'bold-italic', text: both })
+    else if (moment !== undefined) {
+      const seconds = secondsOf(moment)
+      inlines.push({ kind: 'moment', text: timecode(seconds), seconds })
+    } else if (both !== undefined) inlines.push({ kind: 'bold-italic', text: both })
     else if (bold !== undefined) inlines.push({ kind: 'bold', text: bold })
     else if (italic !== undefined) inlines.push({ kind: 'italic', text: italic })
     at = match.index + whole.length
@@ -126,13 +157,15 @@ export function parseNote(text: string): Block[] {
   return blocks
 }
 
-const MARKS: Record<Inline['kind'], string> = {
+const MARKS: Record<Exclude<Inline['kind'], 'moment'>, string> = {
   text: '', bold: '**', italic: '*', 'bold-italic': '***', code: '`',
 }
 
 /** One line's runs, back as the text that would parse into them. */
 function fromInlines(inlines: Inline[]): string {
-  return inlines.map((run) => MARKS[run.kind] + run.text + MARKS[run.kind]).join('')
+  return inlines.map((run) => run.kind === 'moment'
+    ? '[' + timecode(run.seconds) + ']'
+    : MARKS[run.kind] + run.text + MARKS[run.kind]).join('')
 }
 
 /**
@@ -143,18 +176,21 @@ function fromInlines(inlines: Inline[]): string {
  * one string stored in `annotations.note`.
  *
  * It writes one spelling of each thing — `##` for every heading, `-` for every
- * bullet, `1.` counting up — so text that came in written another way comes
- * back normalised. Running it on its own output changes nothing, which is what
+ * bullet, `1.` counting up, `[0:26]` rather than `[00:26]` — so text that came
+ * in written another way comes back normalised. Running it on its own output changes nothing, which is what
  * keeps the editor from reporting an edit every time you look at a note.
  */
 export function toMarkdown(blocks: Block[]): string {
+  // No line keeps a space at its end: the parser drops it on the way back in,
+  // and a line the tape was just marked on ends in the space the caret stood on.
+  const line = (text: string): string => text.trimEnd()
   return blocks.map((block) => {
     switch (block.kind) {
-      case 'heading': return '## ' + fromInlines(block.inlines)
-      case 'paragraph': return block.lines.map(fromInlines).join('\n')
-      case 'quote': return block.lines.map((line) => '> ' + fromInlines(line)).join('\n')
+      case 'heading': return line('## ' + fromInlines(block.inlines))
+      case 'paragraph': return block.lines.map((one) => line(fromInlines(one))).join('\n')
+      case 'quote': return block.lines.map((one) => line('> ' + fromInlines(one))).join('\n')
       case 'list': return block.items
-        .map((item, i) => (block.ordered ? i + 1 + '. ' : '- ') + fromInlines(item))
+        .map((item, i) => line((block.ordered ? i + 1 + '. ' : '- ') + fromInlines(item)))
         .join('\n')
     }
   }).join('\n\n')
