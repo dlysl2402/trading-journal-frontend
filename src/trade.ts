@@ -173,10 +173,20 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
      * One write of this trade's margin, narrated on the status line.
      *
      * Every field lives in the same row, so a change to any one of them writes
-     * all of them — which is why each change starts from the note as it stands
-     * rather than from what is on the screen next to it.
+     * all of them — which is why each change is applied to the note as it
+     * stands rather than to what is on the screen next to it. Writes go one at
+     * a time, each starting from what the one before it kept: two clicks
+     * quicker than the record answers would otherwise both start from the
+     * same note, and the second would write the first away.
      */
-    async function persist(written: Written): Promise<boolean> {
+    function persist(edit: (current: Note) => Written): Promise<boolean> {
+      const write = queue.then(() => send(edit(note())))
+      queue = write
+      return write
+    }
+    let queue: Promise<unknown> = Promise.resolve()
+
+    async function send(written: Written): Promise<boolean> {
       status.className = 'saved working'
       status.textContent = 'Saving…'
       try {
@@ -192,8 +202,12 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
       }
     }
 
-    /** A click on a grade or a tag is the save; the tab waits for it before moving on. */
-    const change = (written: Written): void => { inFlight = persist(written) }
+    /**
+     * A click on a grade or a tag is the save; the tab waits for it before
+     * moving on. The chips are redrawn once the record has answered, so what
+     * is lit is what was kept — and a refused save leaves them as they were.
+     */
+    const change = (edit: (current: Note) => Written): void => { inFlight = persist(edit).finally(redraw) }
 
     section.append(status)
 
@@ -222,9 +236,7 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
       const button = h('button', 'grade', grade) as HTMLButtonElement
       button.type = 'button'
       button.addEventListener('click', () => {
-        const current = note()
-        change({ ...current, grade: current.grade === grade ? null : grade })
-        redraw()
+        change((current) => ({ ...current, grade: current.grade === grade ? null : grade }))
       })
       redraws.push(() => button.classList.toggle('on', note().grade === grade))
       letters.append(button)
@@ -245,9 +257,7 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
           if (tag.description) chip.title = tag.description
           chip.classList.toggle('on', carried.includes(tag.slug))
           chip.addEventListener('click', () => {
-            const current = note()
-            change({ ...current, tags: toggled(current.tags, tag, vocabulary.kindOf) })
-            redraw()
+            change((current) => ({ ...current, tags: toggled(current.tags, tag, vocabulary.kindOf) }))
           })
           chips.append(chip)
         }
@@ -275,9 +285,7 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
         const chip = h('button', 'chip stray on', slug) as HTMLButtonElement
         chip.type = 'button'
         chip.addEventListener('click', () => {
-          const current = note()
-          change({ ...current, tags: current.tags.filter((other) => other !== slug) })
-          redraw()
+          change((current) => ({ ...current, tags: current.tags.filter((other) => other !== slug) }))
         })
         return chip
       }))
@@ -306,8 +314,7 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
           if (!create || label === '') { redraw(); return true }
           try {
             const tag = await vocabulary.add(kind, label)
-            const current = note()
-            return await persist({ ...current, tags: toggled(current.tags, tag, vocabulary.kindOf) })
+            return await persist((current) => ({ ...current, tags: toggled(current.tags, tag, vocabulary.kindOf) }))
           } catch (error) {
             status.className = 'saved failed'
             status.textContent = error instanceof Error ? error.message : String(error)
@@ -330,21 +337,27 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     // The note: always the editor, never a box you switch into.
     const editor = createEditor(PROMPT)
     editor.set(note().text)
-    section.append(editor.node)
 
-    let writing = false
-    async function commitNote(): Promise<boolean> {
-      if (writing) return true
+    // Leaving the note saves it; this is for saving without leaving, and for
+    // being sure. It keeps the caret where it was, so you can write on.
+    const save = h('button', 'quiet save-note', 'Save note') as HTMLButtonElement
+    save.type = 'button'
+    save.title = '⌘Enter, or click away from the note'
+    save.addEventListener('mousedown', (event) => { event.preventDefault() })
+    save.addEventListener('click', () => { inFlight = commitNote() })
+    section.append(editor.node, save)
+
+    /**
+     * Write the note if it differs from what was kept. A save already in the
+     * air does not swallow this one: it queues behind it, carrying the words
+     * as they are now.
+     */
+    function commitNote(): Promise<boolean> {
       const text = editor.value()
       // Reading a note is not editing it: the text comes back through the same
       // normalising that wrote it, so an untouched note matches exactly.
-      if (text === note().text) return true
-      writing = true
-      try {
-        return await persist({ ...note(), text })
-      } finally {
-        writing = false
-      }
+      if (text === note().text) return Promise.resolve(true)
+      return persist((current) => ({ ...current, text }))
     }
 
     editor.node.addEventListener('focusout', (event) => {
