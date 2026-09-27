@@ -21,7 +21,7 @@ import type { Margin } from './margin.ts'
 import { hasWords, isBlank } from './margin.ts'
 import type { Vocabulary } from './tags.ts'
 import { GRADE_GUIDE, KINDS } from './tags.ts'
-import { endedAs, exitPrice, stopAt } from './view.ts'
+import { endedAs, exitPrice, riskShare, stopAt } from './view.ts'
 
 export interface TradeList {
   /** Redraw one row's review column, after a save. */
@@ -56,7 +56,7 @@ interface Row {
 /** @param entries every trade, newest first. */
 export function createTable(entries: Entry[], context: ListContext): TradeList {
   const { format, margin, vocabulary, open, dayChanged } = context
-  const { day, duration, plural, price, side, signed, time, tone, weekday, when } = format
+  const { day, duration, pct, plural, price, side, signed, time, tone, weekday, when } = format
   const words = { label: vocabulary.label, kindOf: vocabulary.kindOf }
 
   const card = must('trades')
@@ -204,7 +204,7 @@ export function createTable(entries: Entry[], context: ListContext): TradeList {
 
   const head = table.createTHead().insertRow()
   const columns: [string, string][] = [
-    ['Time', ''], ['Symbol', ''], ['Side', 'c-some'], ['Lots', 'num c-more'], ['Entry', 'num c-more'], ['Exit', 'num c-more'],
+    ['Time', ''], ['Symbol', ''], ['Side', 'c-some'], ['Risk', 'num c-more'], ['Entry', 'num c-more'], ['Exit', 'num c-more'],
     ['Held', 'num c-more'], ['Closed by', 'c-some'], ['Stop', 'num c-more'], ['Result', 'num'], ['Review', ''],
   ]
   for (const [text, className] of columns) {
@@ -261,7 +261,8 @@ export function createTable(entries: Entry[], context: ListContext): TradeList {
       sideCell.className = 'c-some'
       sideCell.append(sidePill)
 
-      node.append(h('td', 'num c-more', String(t.entry.volume)))
+      const risk = riskShare(t)
+      node.append(h('td', 'num c-more', risk === null ? '—' : pct(risk)))
       node.append(h('td', 'num c-more', price.format(t.entry.price)))
       node.append(h('td', 'num c-more', price.format(exitPrice(t))))
       node.append(h('td', 'num c-more', duration(closed.getTime() - t.entry.time.getTime())))

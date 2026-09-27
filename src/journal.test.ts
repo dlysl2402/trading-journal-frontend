@@ -149,7 +149,7 @@ test('refuses a trade opened on nothing, which no real account allows', () => {
       deal({ id: '1', time: '2026-09-07T10:00:00.000Z', brokerTime: '2026-09-07 13:00:00.000' }),
       exit({ id: '2', profit: 10 }, '1'),
     ])),
-    /position 1: opened on a balance of 0\.00/)
+    /position 1: opened with nothing in the account/)
 })
 
 test('timestamps are broker server time, the clock the terminal shows', () => {
@@ -167,7 +167,7 @@ test('refuses a history that does not add up to the broker balance', () => {
   // The failure a poll actually has: a page that never arrived.
   assert.throws(
     () => buildJournal(feed([deal({ id: '1', profit: 100 })], [], 10_250)),
-    /add up to 10100\.00.*balance of 10250\.00.*incomplete/s)
+    /2 deals add up to 1\.46% less than the balance the broker reports.*incomplete/s)
 })
 
 test('refuses a deal type it does not model rather than treating it as a trade', () => {

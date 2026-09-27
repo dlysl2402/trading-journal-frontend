@@ -40,7 +40,7 @@ import { GRADES, GRADE_GUIDE, KINDS, toggled } from './tags.ts'
 import { createTape } from './tape.ts'
 import { tipMark } from './tips.ts'
 import type { Standing } from './view.ts'
-import { closedAt, endedAs, exitPrice, inFavour, multipleOf, plannedRatio, returnOf } from './view.ts'
+import { closedAt, endedAs, exitPrice, inFavour, multipleOf, plannedRatio, returnOf, riskOf, riskShare } from './view.ts'
 
 type Phase = 'preTrade' | 'inTrade' | 'postTrade'
 
@@ -108,7 +108,7 @@ export interface Drawing {
 /** One trade drawn out in full, with the margin beside it. */
 export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
   const { format, margin, vocabulary, saved } = drawing
-  const { clock, dateOf, duration, justNow, multiple, price, side, signed, time, tone, weekday, when, wrote } = format
+  const { clock, dateOf, duration, justNow, multiple, pct, price, side, signed, time, tone, weekday, when, wrote } = format
 
   const panel = h('section', 'trade')
   panel.tabIndex = -1
@@ -169,16 +169,19 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     // short exits by buying, and the sign turns over.
     const better = (exit.price - exit.reason.price) * (trade.side === 'buy' ? 1 : -1)
     if (Math.abs(better) <= SAME) return null
-    const gap = price.format(Math.abs(better))
+    // In R where the trade has one, so the fill is weighed against what the
+    // trade risked; in price where it was opened without a stop.
+    const risk = riskOf(trade)
+    const gap = risk === null ? price.format(Math.abs(better)) : (Math.abs(better) / risk).toFixed(2) + 'R'
     return better > 0 ? { text: gap + ' better fill', tone: 'up' } : { text: gap + ' slippage', tone: 'down' }
   }
 
-  /** Why an exit fired, and how far the fill landed from the level that fired it. */
+  /** Why an exit fired, how much of the position it closed, and how far the fill landed from the level that fired it. */
   function exitRow(exit: ExitFill): HTMLElement {
     const row = h('li')
     row.append(
       h('span', 'exit-at', clock(exit.time)),
-      h('span', 'exit-lots', exit.volume + ' lots @ ' + price.format(exit.price)))
+      h('span', 'exit-size', Math.round(100 * exit.volume / trade.entry.volume) + '% @ ' + price.format(exit.price)))
     const why = h('span', 'closed-by')
     why.append(h('i', 'dot ' + exit.reason.kind), CLOSED_BY[exit.reason.kind] +
       (exit.reason.kind === 'manual' ? '' : ' ' + price.format(exit.reason.price)))
@@ -674,12 +677,13 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     ? weekday(opened) + ' · ' + time(opened) + ' → ' + time(closed)
     : when(opened) + ' → ' + when(closed)
   const identity = h('div')
+  const risk = riskShare(trade)
   identity.append(title, h('p', 'trade-sub', [
     span,
     duration(closed.getTime() - opened.getTime()),
-    trade.entry.volume + ' lots',
+    risk === null ? null : pct(risk) + ' at risk',
     CLOSED_HOW[endedAs(trade)],
-  ].join(' · ')))
+  ].filter((part) => part !== null).join(' · ')))
 
   // One figure, net of costs: what the trade did to the account — and, for the
   // week's biggest either way, a word that this is one to take apart.

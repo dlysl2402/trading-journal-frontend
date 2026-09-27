@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Trade } from './journal.ts'
-import { costsOf, endedAs, equityCurve, exitPrice, inFavour, multipleOf, netOf, plannedRatio, returnOf, standouts, stopAt } from './view.ts'
+import { costsOf, endedAs, equityCurve, exitPrice, inFavour, multipleOf, netOf, plannedRatio, returnOf, riskShare, standouts, stopAt } from './view.ts'
 
 /*
  * There were two tests here that no longer have anything to test. The page
@@ -84,6 +84,21 @@ test('a result in R is the exit\'s distance over the stop placed with the entry,
   short.exits = [{ ...long.exits[0]!, price: 97 }]
   assert.equal(multipleOf(short), 1.5)
   assert.equal(plannedRatio(short), 3)
+})
+
+test('what a trade risked is its gross return over its multiple, as a share of the account', () => {
+  // 30 gross on 1000 for a run of 3 against a stop 2 away: 3% for 1.5R, so 1R was 2%.
+  const sized = { ...trade('1', 29, '2026-09-07T10:00:00Z', '2026-09-07T11:00:00Z'), stop: { initial: 98, final: 98 } }
+  sized.exits = [{ ...sized.exits[0]!, price: 103 }]
+  assert.equal(riskShare(sized)?.toFixed(6), '0.020000')
+  // The same trade on twice the balance risked half as much of it.
+  assert.equal(riskShare({ ...sized, balanceAtEntry: 2000 })?.toFixed(6), '0.010000')
+
+  // Without the stop it was opened with there is no R to divide by, and a
+  // trade that left at its entry moved nothing to measure the size by.
+  assert.equal(riskShare({ ...sized, stop: { initial: null, final: 98 } }), null)
+  const scratch = { ...sized, grossProfit: 0, exits: [{ ...sized.exits[0]!, price: 100 }] }
+  assert.equal(riskShare(scratch), null)
 })
 
 test('each week marks its biggest win and its biggest loss', () => {

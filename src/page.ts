@@ -85,9 +85,12 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
   const payoff = avgWin !== null && avgLoss !== null ? ratio(avgWin, avgLoss) : null
   const expectancy = ratio(sum(trades, result), trades.length)
   // The one place costs are named: what share of gross P&L they took, in
-  // total. Per trade the same figure only says how small the move was.
-  const gross = sum(trades, (p) => p.trade.grossProfit)
-  const costShare = ratio(-sum(trades, (p) => costsOf(p.trade)), Math.abs(gross))
+  // total. Per trade the same figure only says how small the move was. Each
+  // trade's gross and costs are taken against its own balance first, as every
+  // other figure is, so a trade after a deposit does not outweigh one before.
+  const share = (p: ClosedPoint, money: number) => money / p.trade.balanceAtEntry
+  const gross = sum(trades, (p) => share(p, p.trade.grossProfit))
+  const costShare = ratio(-sum(trades, (p) => share(p, costsOf(p.trade))), Math.abs(gross))
 
   const days: Day[] = [...Map.groupBy(trades, (p) => dateOf(p.time))]
     .map(([date, list]) => ({ date, net: sum(list, result), count: list.length }))
@@ -124,7 +127,7 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
   // ── the top of the page ──────────────────────────────────────────────────
 
   const account = must('sub')
-  account.textContent = '#' + journal.account.id + ' · ' + journal.account.currency
+  account.textContent = '#' + journal.account.id
   account.dataset.tip = journal.account.broker
   account.hidden = false
 

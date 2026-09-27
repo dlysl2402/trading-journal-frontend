@@ -99,7 +99,7 @@ export interface Trade {
 
 /** The account as of one fetch. */
 export interface Journal {
-  account: { id: string; broker: string; currency: string }
+  account: { id: string; broker: string }
   /**
    * How far ahead of UTC the broker's clock runs, from the latest deal. One
    * deal rather than an average: brokers shift with daylight saving, so the
@@ -221,7 +221,7 @@ function toTrade(
 
   const balanceAtEntry = balanceBefore.get(entry.id)!
   if (balanceAtEntry <= 0) {
-    throw new Error(`position ${positionId}: opened on a balance of ${balanceAtEntry.toFixed(2)}`)
+    throw new Error(`position ${positionId}: opened with nothing in the account`)
   }
 
   const order = orders.get(entry.orderId)
@@ -271,12 +271,17 @@ function balancesBefore(deals: RawDeal[]): Map<string, number> {
  * swap, so one sum covers every kind of deal.
  */
 function reconcileBalance(feed: RawFeed): void {
-  const booked = feed.deals.reduce(
-    (total, deal) => total + deal.profit + deal.commission + deal.swap, 0)
-  if (Math.abs(booked - feed.account.balance) >= TOLERANCE) {
+  const { balance } = feed.account
+  const gap = feed.deals.reduce(
+    (total, deal) => total + deal.profit + deal.commission + deal.swap, 0) - balance
+  if (Math.abs(gap) >= TOLERANCE) {
+    // How far off as a share of the balance, never the sums themselves: this
+    // message lands on the page, and the page shows no money.
+    const off = balance > 0
+      ? `add up to ${(100 * Math.abs(gap) / balance).toFixed(2)}% ${gap > 0 ? 'more' : 'less'} than`
+      : 'do not add up to'
     throw new Error(
-      `${feed.deals.length} deals add up to ${booked.toFixed(2)}, but the broker reports ` +
-      `a balance of ${feed.account.balance.toFixed(2)} — the history fetched is incomplete`)
+      `${feed.deals.length} deals ${off} the balance the broker reports — the history fetched is incomplete`)
   }
 }
 
@@ -300,7 +305,7 @@ export function buildJournal(feed: RawFeed, since = new Date(0)): Journal {
 
   const { account } = feed
   return {
-    account: { id: String(account.login), broker: account.broker, currency: account.currency },
+    account: { id: String(account.login), broker: account.broker },
     serverUtcOffsetMinutes: serverUtcOffsetMinutes(feed.deals),
     trades,
   }

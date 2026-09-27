@@ -85,7 +85,7 @@ export function inFavour(trade: Trade, price: number): number {
  * two apart for exactly this. Null without one, or with one that was never on
  * the losing side of the entry.
  */
-function riskOf(trade: Trade): number | null {
+export function riskOf(trade: Trade): number | null {
   if (trade.stop.initial === null) return null
   const risk = -inFavour(trade, trade.stop.initial)
   return risk > 0 ? risk : null
@@ -98,6 +98,22 @@ function riskOf(trade: Trade): number | null {
 export function multipleOf(trade: Trade): number | null {
   const risk = riskOf(trade)
   return risk === null ? null : inFavour(trade, exitPrice(trade)) / risk
+}
+
+/**
+ * What the trade stood to lose at the stop it was opened with, as a fraction
+ * of the account: the size of the position, said the way every other figure
+ * on the page is, rather than in lots.
+ *
+ * The broker never states what a point was worth, but the trade does: its
+ * gross return and its multiple are both before costs and both from the same
+ * exit, so one over the other is the return one R was worth. Null without an
+ * initial stop, and for a trade that left at its entry, which moved nothing
+ * to measure by.
+ */
+export function riskShare(trade: Trade): number | null {
+  const r = multipleOf(trade)
+  return r === null || r === 0 ? null : trade.grossProfit / trade.balanceAtEntry / r
 }
 
 /** Reward over risk as the entry order planned it: the target's distance over the stop's. */
