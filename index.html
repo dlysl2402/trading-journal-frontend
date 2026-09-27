@@ -8,12 +8,12 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%235b5bd6'/%3E%3Cpath d='M8 20.5l4.8-5 3.7 3.2L24 11' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='11' r='2.3' fill='%23fff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <style>
   /* A warm, light notebook. Paper for the page, white cards on it, one iris
      accent for what you can press, and green and red for results and nothing
-     else. One sans for the interface and every figure; the serif is kept for
-     the words that are yours — the greeting, your notes, what a tag means.
+     else. One sans for everything — the interface, every figure and your
+     notes — because a note is read far more often than it is admired.
      The exit colours are a validated categorical set; every text colour here
      clears 4.5:1 on the surface it sits on. */
   :root {
@@ -72,7 +72,6 @@
     --k-mistake-soft: #fdf1dd;
     --k-mistake-line: #f0d3a0;
     --sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --serif: 'Newsreader', Georgia, 'Times New Roman', serif;
     --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     --r-lg: 18px;
     --r: 12px;
@@ -231,7 +230,7 @@
   /* ── Hello ────────────────────────────────────────────────────────────── */
   .hello { padding: 18px 2px 22px; }
   .today { font-size: 13px; font-weight: 600; color: var(--dim); margin-bottom: 2px; }
-  .hello h1 { font: 500 36px/1.15 var(--serif); letter-spacing: -0.02em; }
+  .hello h1 { font: 700 32px/1.15 var(--sans); letter-spacing: -0.025em; }
 
   /* ── The lead: the curve and the queue ────────────────────────────────── */
   .lead { display: grid; gap: 16px; }
@@ -715,8 +714,8 @@
   .tool.group { margin-left: 8px; }
   .tool:hover { background: var(--sunken-2); color: var(--ink); }
   .tool.on { background: var(--accent-soft); color: var(--accent-ink); }
-  .writing { position: relative; min-height: 190px; padding: 14px 16px; outline: none; cursor: text; font: 400 17px/1.65 var(--serif); color: var(--ink); }
-  .writing.vacant::before { content: attr(data-placeholder); position: absolute; left: 16px; right: 16px; color: var(--muted); font-style: italic; pointer-events: none; }
+  .writing { position: relative; min-height: 190px; padding: 14px 16px; outline: none; cursor: text; font: 400 15px/1.65 var(--sans); color: var(--ink); }
+  .writing.vacant::before { content: attr(data-placeholder); position: absolute; left: 16px; right: 16px; color: var(--muted); pointer-events: none; }
   /* Room for the tab strip above a line brought into view, and a little below it. */
   .writing > *, .writing li { scroll-margin: 76px 0 24px; }
   .writing > :first-child { margin-top: 0; }
@@ -726,7 +725,7 @@
   .writing ul, .writing ol { margin: 0 0 .8em; padding-left: 1.3em; }
   .writing li { margin-bottom: .25em; }
   .writing li::marker { color: var(--muted); }
-  .writing blockquote { margin: 0 0 .8em; padding: 2px 0 2px 14px; border-left: 3px solid var(--accent-soft-2); color: var(--dim); font-style: italic; }
+  .writing blockquote { margin: 0 0 .8em; padding: 2px 0 2px 14px; border-left: 3px solid var(--accent-soft-2); color: var(--dim); }
   .writing strong { font-weight: 600; }
   .writing code { padding: 1px 5px; border-radius: 5px; background: var(--sunken); color: var(--accent-ink); font: 400 13.5px/1.5 var(--mono); }
   /* A moment on the tape, as the note shows it: press it to play from there. */
@@ -761,11 +760,10 @@
   .kind-trigger .kind-dot { background: var(--k-trigger); }
   .kind-play .kind-dot { background: var(--k-play); }
   .kind-mistake .kind-dot { background: var(--k-mistake); }
-  .pick-asks { font: italic 400 16px/1.3 var(--serif); color: var(--dim); }
+  .pick-asks { font-size: 14px; color: var(--dim); }
   .tag-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto auto auto; align-items: center; gap: 6px; margin-bottom: 6px; }
   .tag-row.retired .tag-field { color: var(--muted); background: var(--hover); }
   .tag-field { width: 100%; min-width: 0; height: 36px !important; font-size: 13.5px !important; }
-  .tag-field.meaning { font-family: var(--serif) !important; font-size: 15px !important; }
   .tag-field.new { margin-top: 2px; border-style: dashed; background: var(--hover); }
   .retired-head { margin: 14px 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
   .retire { min-width: 92px; }
@@ -778,7 +776,7 @@
   .gate { min-height: calc(100vh - 160px); display: grid; place-items: center; padding: 24px 0; }
   form.signin { width: 100%; max-width: 390px; padding: 32px 30px 30px; }
   form.signin .logo { width: 44px; height: 44px; margin-bottom: 18px; }
-  form.signin h2 { margin-bottom: 22px; font: 500 30px/1.15 var(--serif); letter-spacing: -0.02em; }
+  form.signin h2 { margin-bottom: 22px; font: 700 26px/1.2 var(--sans); letter-spacing: -0.02em; }
   .field { display: grid; gap: 6px; margin-bottom: 14px; font-size: 13px; font-weight: 600; color: var(--ink); }
   .field input { height: 44px; font-size: 15px; font-weight: 400; }
   .form-error { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--down-soft); color: var(--down); font-size: 13px; font-weight: 500; }
