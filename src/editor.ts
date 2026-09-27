@@ -23,6 +23,8 @@
  */
 
 import { h } from './dom.ts'
+import type { IconName } from './icons.ts'
+import { icon } from './icons.ts'
 import { parseNote, toMarkdown } from './notes.ts'
 import { readBlocks, writeBlocks } from './prose.ts'
 
@@ -39,10 +41,12 @@ interface Editor {
 }
 
 interface Command {
-  label: string
+  icon: IconName
   title: string
   run: () => void
   active: () => boolean
+  /** Whether a small gap sets this button apart from the one before it. */
+  group?: boolean
 }
 
 export function createEditor(placeholder: string): Editor {
@@ -114,21 +118,26 @@ export function createEditor(placeholder: string): Editor {
     selection.addRange(after)
   }
 
+  const mod = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl+'
   const COMMANDS: Command[] = [
-    { label: 'B', title: 'Bold  ⌘B', run: () => exec('bold'), active: () => document.queryCommandState('bold') },
-    { label: 'I', title: 'Italic  ⌘I', run: () => exec('italic'), active: () => document.queryCommandState('italic') },
-    { label: '</>', title: 'Code', run: toggleCode, active: () => within('CODE') !== null },
-    { label: 'H', title: 'Heading', run: () => asBlock('H4'), active: () => within('H4') !== null },
-    { label: '•', title: 'Bulleted list', run: () => exec('insertUnorderedList'), active: () => within('UL') !== null },
-    { label: '1.', title: 'Numbered list', run: () => exec('insertOrderedList'), active: () => within('OL') !== null },
-    { label: '“', title: 'Quote', run: () => asBlock('BLOCKQUOTE'), active: () => within('BLOCKQUOTE') !== null },
+    { icon: 'bold', title: `Bold (${mod}B)`, run: () => exec('bold'), active: () => document.queryCommandState('bold') },
+    { icon: 'italic', title: `Italic (${mod}I)`, run: () => exec('italic'), active: () => document.queryCommandState('italic') },
+    { icon: 'code', title: 'Code', run: toggleCode, active: () => within('CODE') !== null },
+    { icon: 'heading', title: 'Heading (## )', run: () => asBlock('H4'), active: () => within('H4') !== null, group: true },
+    { icon: 'list', title: 'Bulleted list (- )', run: () => exec('insertUnorderedList'), active: () => within('UL') !== null },
+    { icon: 'list-ordered', title: 'Numbered list (1. )', run: () => exec('insertOrderedList'), active: () => within('OL') !== null },
+    { icon: 'quote', title: 'Quote (> )', run: () => asBlock('BLOCKQUOTE'), active: () => within('BLOCKQUOTE') !== null },
   ]
 
   const toolbar = h('div', 'toolbar')
+  toolbar.setAttribute('role', 'toolbar')
+  toolbar.setAttribute('aria-label', 'Formatting')
   const buttons = COMMANDS.map((command) => {
-    const button = h('button', 'tool', command.label) as HTMLButtonElement
+    const button = h('button', 'tool' + (command.group ? ' group' : '')) as HTMLButtonElement
     button.type = 'button'
-    button.title = command.title
+    button.dataset.tip = command.title
+    button.setAttribute('aria-label', command.title)
+    button.append(icon(command.icon))
     // Without this the button takes focus on the way down, the selection is
     // gone before the click lands, and the editor blurs into a save.
     button.addEventListener('mousedown', (event) => { event.preventDefault() })
@@ -145,7 +154,9 @@ export function createEditor(placeholder: string): Editor {
     root.classList.toggle('vacant', readBlocks(root).length === 0)
     if (!holds()) return
     buttons.forEach((button, index) => {
-      button.classList.toggle('on', COMMANDS[index]!.active())
+      const on = COMMANDS[index]!.active()
+      button.classList.toggle('on', on)
+      button.setAttribute('aria-pressed', String(on))
     })
   }
 

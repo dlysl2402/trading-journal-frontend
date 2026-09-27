@@ -1,9 +1,11 @@
 # trading-journal-frontend
 
-The journal you look at. One page: the net return, the growth curve, a calendar
-of days, what the broker's own fields say about how the trades were run, and every
-closed trade in a table — and, behind any row you click, that trade opened up
-in a tab of its own, with somewhere to write about it.
+The journal you look at. One page: the net return and the growth curve, a
+queue of the trades still waiting to be written up, a calendar of days, what the
+broker's own fields say about how the trades were run, what your grades and tags
+say about which setups pay, and every closed trade in a list you can narrow —
+and, behind any row you click, that trade opened up in a tab of its own, with
+somewhere to write about it.
 
 It is a static page. It signs in to Supabase, reads the record the import keeps
 there, rebuilds the round trips in the browser, and works every figure out from
@@ -55,7 +57,9 @@ the one change that needs both repositories in the same breath.
 | 3 | the figures | `src/view.ts` — net, costs, exit price, the curve; derived, never stored |
 | 4 | the margin | `src/margin.ts` — your notes, grades and tags; kept, because nothing derives them |
 | 4 | the vocabulary | `src/tags.ts` — the four kinds of tag, what each is for, and the words in each |
-| — | the drawing | `src/page.ts` — the page, from the `Journal` itself |
+| — | the drawing | `src/page.ts` — the page, from the `Journal` itself, and the wiring between its pieces |
+| — | the pieces | `src/chart.ts`, `src/calendar.ts`, `src/table.ts`, `src/queue.ts`, `src/insights.ts` — the curve, the calendar, the list, the review queue and what's working |
+| — | the sifting | `src/filter.ts` — which trades the list shows; `src/breakdown.ts` — the written-up trades grouped by grade or by tag. Both pure, and tested |
 | — | the tabs | `src/tabs.ts` — the overview and one tab per opened trade, and the address in the URL |
 | — | one trade | `src/trade.ts` — a trade drawn out in full, and where you write |
 | — | the words | `src/settings.ts` — the dialog where tags are named, described, ordered and retired |
@@ -66,31 +70,49 @@ out again — blocks rather than HTML, which is why a note can hold an angle
 bracket and still be words on the page. `src/prose.ts` is the other half of
 that hinge, blocks to elements and back, and `src/editor.ts` the writing
 surface on top of them. Those two files are the whole cost of keeping prose
-rather than markup, and nothing else in the app knows a note has a format. `src/format.ts` is how every figure is written down and
-`src/dom.ts` the two lines of DOM the drawing modules share. `src/main.ts` is
-the boot.
+rather than markup, and nothing else in the app knows a note has a format. `src/format.ts` is how every figure is written down,
+`src/dom.ts` the two lines of DOM the drawing modules share, `src/icons.ts` the
+handful of line icons, and `src/tips.ts` the one tooltip every explanation on
+the page shares. `src/main.ts` is the boot.
 
 ## Writing in it
 
-Click any row in the table. The trade opens in a tab of its own, beside the
-overview: one line of what it was, the four prices — with the stop as it was
-placed *and* as it ended, and how far a fill landed from the level that fired
-it — and under them your read of it: a grade, your tags, and your note. A
-trade closed in pieces lists each piece; nothing else is said twice. Open as many as you like; the strip under the header switches
+The quickest way in is **Review next trade**, in the review queue beside the
+curve. It opens the newest trade with nothing written against it, and **Next to
+review** at the foot of that trade — or `N` — moves the tab on to the one after,
+so a session's worth of trades is written up in one pass rather than forty trips
+back to the list. Any row in the list opens its trade too, and so does a point
+on the curve.
+
+The trade opens in a tab of its own, beside the overview. On the left is what it
+was: the plan drawn as a line — stop to target, the entry between them and a dot
+where the trade left — with the result in R, how far price went your way in units
+of the stop it was opened with, when it was opened with one; then the four
+prices, with the stop as it was placed *and* as it ended, and how far a fill
+landed from the level that fired it. A trade closed in pieces lists each piece;
+nothing else is said twice. On the right is your read of it: a grade, your tags,
+and your note. Open as many as you like; the strip under the header switches
 between them, and the overview comes back scrolled to where you left it. A
-trade already open goes to its tab rather than opening twice. The date in a
+trade already open goes to its tab rather than opening twice. The time in a
 row is a link to the trade's address (`#trade/<position id>`), so a ⌘-click or
 a middle click opens it in a browser tab instead, and the address can be
 bookmarked.
+
+The list narrows as you ask it to: by words in the symbol, a tag or a note; to
+winners or losers, longs or shorts; to the trades still waiting for a review, or
+the ones done. Press a filter again to let it go. A day on the calendar narrows it to that day, and a row of
+**What's working** — the written-up trades grouped by grade, play, context,
+trigger or mistake, with what each group came to — to that group. The figures
+above the list are always every trade; only the list narrows.
 
 **The grade** is A, B or C for the setup as it looked at entry, never for how
 it ended; the result already has a column. Click a letter to set it and the
 lit one again to clear it.
 
 **Tags are picked, not typed.** They come in four kinds. On a trade each is
-one row, its name and its words; hover the name for what the kind is for, and
-**Tags** in the header writes it out in full, so the line between them is kept
-on a page rather than in your head:
+one row, its name and its words; the ⓘ beside the name gives the question the
+kind answers and what it is for, and **Tags** in the header keeps all four in
+one place, so the line between them is kept on a page rather than in your head:
 
 | | answers | |
 |---|---|---|
@@ -102,7 +124,7 @@ on a page rather than in your head:
 Every tag is a word from one vocabulary, spelled once, so that "1h
 overextended" on a Tuesday loser is the same tag as on a Friday winner and a
 filter can find them all. A tag not yet in the vocabulary is added from the
-`+` chip at the end of its row without leaving the trade. **Tags** in the header
+**+ New** chip at the end of its row without leaving the trade. **Tags** in the header
 opens the vocabulary itself: rename a tag and every trade follows, give it a
 description so it keeps its meaning, move it up or down the list, or retire it
 — it leaves the picker but stays on every trade that carries it. Nothing is
@@ -119,12 +141,14 @@ above it does bold, italic, code, headings, both kinds of list and quotes.
 line turns into the thing it means. Tags sit above it as chips you click to
 edit as a line.
 
-Nothing has a save button. Leaving a field saves it, `Esc` puts the pen down
-and `Esc` again closes the tab, and `←` `→` move the tab to the next trade —
-which is what makes writing up a session's worth of trades one pass rather
-than forty. A save the record refuses leaves your words on the screen and says
-why, and holds the tab open rather than carrying them off it. A grade or a tag
-is saved by the click that sets it.
+Nothing needs a save button. A grade or a tag is saved by the click that sets
+it, and the note by leaving it — or by `⌘↵`, or **Save note** under it, for
+saving without leaving. `Esc` puts the pen down and `Esc` again closes the tab;
+`←` `→` move the tab to the newer or older trade, and `N` to the next one
+waiting for a review. None of those keys do anything while you are typing, so
+the arrows still move the caret in a note. A save the record refuses leaves your
+words on the screen and says why, and holds the tab open rather than carrying
+them off it.
 
 **What is stored is still plain text.** The editor is a reading of it, not a
 second copy: `annotations.note` holds Markdown you could open in any editor, so

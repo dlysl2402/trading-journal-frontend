@@ -72,6 +72,42 @@ export function stopAt(trade: Trade): number | null {
   return trade.stop.final ?? trade.stop.initial
 }
 
+/** How far a price sits from the entry in the direction the trade wanted to go: above zero is profit. */
+export function inFavour(trade: Trade, price: number): number {
+  return (price - trade.entry.price) * (trade.side === 'buy' ? 1 : -1)
+}
+
+/**
+ * The distance to the stop the entry order carried: what the trade risked.
+ *
+ * Only the initial stop will do. A stop set after entry, or trailed, says
+ * where the stop ended up, not what was put at risk — `journal.ts` keeps the
+ * two apart for exactly this. Null without one, or with one that was never on
+ * the losing side of the entry.
+ */
+function riskOf(trade: Trade): number | null {
+  if (trade.stop.initial === null) return null
+  const risk = -inFavour(trade, trade.stop.initial)
+  return risk > 0 ? risk : null
+}
+
+/**
+ * What the trade made in units of what it risked: +2 is twice the distance to
+ * the stop it was opened with, −1 is the stop. From prices, so before costs.
+ */
+export function multipleOf(trade: Trade): number | null {
+  const risk = riskOf(trade)
+  return risk === null ? null : inFavour(trade, exitPrice(trade)) / risk
+}
+
+/** Reward over risk as the entry order planned it: the target's distance over the stop's. */
+export function plannedRatio(trade: Trade): number | null {
+  const risk = riskOf(trade)
+  if (risk === null || trade.target.initial === null) return null
+  const reward = inFavour(trade, trade.target.initial)
+  return reward > 0 ? reward / risk : null
+}
+
 /**
  * Growth over time, one point per closed trade, starting at one at midnight
  * of the day the first trade opened so the line begins on the baseline and

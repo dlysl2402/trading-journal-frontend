@@ -20,8 +20,10 @@
 
 import { h, must } from './dom.ts'
 import type { Format } from './format.ts'
+import { icon } from './icons.ts'
 import type { Trade } from './journal.ts'
 import type { Margin } from './margin.ts'
+import { isBlank } from './margin.ts'
 import type { Vocabulary } from './tags.ts'
 import type { Panel } from './trade.ts'
 import { drawTrade } from './trade.ts'
@@ -33,6 +35,8 @@ const STORED = 'journal:tabs'
 export interface Tabs {
   /** Show a trade, by the position id the table keyed its row by. */
   open: (positionId: string) => void
+  /** Show the overview, leaving every tab open. */
+  home: () => void
   /** Redraw every open trade, after the vocabulary changed under them. */
   refresh: () => void
 }
@@ -57,7 +61,7 @@ export function createTabs(
   const strip = must('tabs')
   const overview = must('overview')
   const panels = must('panels')
-  const { day, signed, tone } = format
+  const { day, side, signed, tone } = format
 
   const byId = new Map(trades.map((trade, index) => [trade.positionId, index]))
   const drawing = { format, margin, vocabulary, saved }
@@ -69,9 +73,10 @@ export function createTabs(
 
   // ── the strip ────────────────────────────────────────────────────────────
 
-  const home = h('button', 'tab on', 'Overview') as HTMLButtonElement
+  const home = h('button', 'tab home on') as HTMLButtonElement
   home.type = 'button'
   home.setAttribute('role', 'tab')
+  home.append(icon('home'), 'Overview')
   home.addEventListener('click', () => { show(null) })
   strip.append(home)
   strip.hidden = true
@@ -90,9 +95,11 @@ export function createTabs(
   function label(trade: Trade): HTMLElement {
     const net = returnOf(trade)
     const text = h('span', 'tab-label')
+    const name = h('span', 'tab-name', trade.symbol)
+    name.append(icon(trade.side === 'buy' ? 'long' : 'short', 'icon side-icon'))
     text.append(
-      h('span', 'tab-name', trade.symbol),
-      h('span', 'tab-when', trade.side + ' · ' + day(closedAt(trade))),
+      name,
+      h('span', 'tab-when', day(closedAt(trade))),
       h('span', 'tab-net ' + tone(net), signed(net)))
     return text
   }
@@ -104,10 +111,12 @@ export function createTabs(
     choose.type = 'button'
     choose.append(label(trade))
     choose.addEventListener('click', () => { show(tab) })
-    const shut = h('button', 'tab-close', '×') as HTMLButtonElement
+    choose.setAttribute('aria-label', `${trade.symbol} ${side(trade.side).toLowerCase()}, ${day(closedAt(trade))}, ${signed(returnOf(trade))}`)
+    const shut = h('button', 'tab-close') as HTMLButtonElement
     shut.type = 'button'
-    shut.title = 'Close'
+    shut.dataset.tip = 'Close tab (Esc)'
     shut.setAttribute('aria-label', 'Close ' + trade.symbol)
+    shut.append(icon('x'))
     shut.addEventListener('click', (event) => {
       event.stopPropagation()
       void close(tab)
@@ -128,8 +137,28 @@ export function createTabs(
       index,
       count: trades.length,
       step: (by) => { void step(tab, by) },
+      next: () => {
+        const next = unwrittenAfter(tab.positionId)
+        if (next !== undefined) void moveTo(tab, byId.get(next.positionId)!)
+      },
+      unwritten: () => trades.filter((other) => other.positionId !== tab.positionId && isBlank(margin.get(other.positionId))).length,
+      home: () => { show(null) },
       close: () => { void close(tab) },
     }, drawing)
+  }
+
+  /**
+   * The next trade down the list with nothing written against it, coming back
+   * round to the top: after the last trade of a pass the ones skipped at the
+   * start are still waiting.
+   */
+  function unwrittenAfter(positionId: string): Trade | undefined {
+    const at = byId.get(positionId) ?? -1
+    for (let i = 1; i < trades.length; i++) {
+      const trade = trades[(at + i + trades.length) % trades.length]!
+      if (trade.positionId !== positionId && isBlank(margin.get(trade.positionId))) return trade
+    }
+    return undefined
   }
 
   /** A tab for the trade, made if it has none. */
@@ -166,12 +195,17 @@ export function createTabs(
     remember()
   }
 
-  /**
-   * Move a tab along the table's order. If the trade that way already has a
-   * tab of its own, that tab is the one to show — a trade is never open twice.
-   */
+  /** Move a tab along the table's order. */
   async function step(tab: Tab, by: number): Promise<void> {
-    const index = (byId.get(tab.positionId) ?? -1) + by
+    await moveTo(tab, (byId.get(tab.positionId) ?? -1) + by)
+  }
+
+  /**
+   * Put another trade in a tab, by its place in the table's order. If that
+   * trade already has a tab of its own, that tab is the one to show — a trade
+   * is never open twice.
+   */
+  async function moveTo(tab: Tab, index: number): Promise<void> {
     const trade = trades[index]
     if (index < 0 || trade === undefined) return
     const already = tabs.find((other) => other.positionId === trade.positionId)
@@ -259,6 +293,7 @@ export function createTabs(
       const tab = tabFor(positionId)
       if (tab !== null) show(tab)
     },
+    home() { show(null) },
     refresh() {
       for (const tab of tabs) tab.panel.refresh()
     },

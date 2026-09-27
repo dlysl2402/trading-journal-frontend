@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Trade } from './journal.ts'
-import { costsOf, endedAs, equityCurve, exitPrice, netOf, returnOf, stopAt } from './view.ts'
+import { costsOf, endedAs, equityCurve, exitPrice, inFavour, multipleOf, netOf, plannedRatio, returnOf, stopAt } from './view.ts'
 
 /*
  * There were two tests here that no longer have anything to test. The page
@@ -71,4 +71,27 @@ test('a trade closed in pieces is filed under the exit that closed most of it', 
   assert.equal(endedAs(split), 'manual')
   // The exit price is the average weighted by volume, to the decimals the broker quotes.
   assert.equal(exitPrice(split), 101.4)
+})
+
+test('a result in R is the exit\'s distance over the stop placed with the entry, either side', () => {
+  const long = { ...trade('1', 10, '2026-09-07T10:00:00Z', '2026-09-07T11:00:00Z'), stop: { initial: 98, final: 98 } }
+  long.exits = [{ ...long.exits[0]!, price: 103 }]
+  assert.equal(inFavour(long, 97), -3)
+  assert.equal(multipleOf(long), 1.5)
+
+  // A short that went its way is positive too.
+  const short = { ...long, side: 'sell' as const, stop: { initial: 102, final: 102 }, target: { initial: 94, final: 94 } }
+  short.exits = [{ ...long.exits[0]!, price: 97 }]
+  assert.equal(multipleOf(short), 1.5)
+  assert.equal(plannedRatio(short), 3)
+})
+
+test('a stop set after entry, or trailed, is not what the trade risked', () => {
+  const late = { ...trades[1]!, stop: { initial: null, final: 99 } }
+  assert.equal(multipleOf(late), null)
+  assert.equal(plannedRatio(late), null)
+  // Trailed to breakeven: still measured against where the stop started.
+  const trailed = { ...trades[1]!, stop: { initial: 98, final: 100 }, target: { initial: 104, final: 104 } }
+  assert.equal(multipleOf(trailed), 0.5)
+  assert.equal(plannedRatio(trailed), 2)
 })

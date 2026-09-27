@@ -13,12 +13,14 @@
  * as they were written.
  */
 
-import { must } from './dom.ts'
+import { h, must } from './dom.ts'
+import { icon } from './icons.ts'
 import { buildJournal } from './journal.ts'
 import { openMargin } from './margin.ts'
 import { drawPage } from './page.ts'
 import { AuthError, readAnnotations, readRecord, readTags, signIn, signOut, storedSession } from './store.ts'
 import { openVocabulary } from './tags.ts'
+import { enableTips } from './tips.ts'
 
 /**
  * The day the journal begins, on the broker's clock. The risk manager went
@@ -30,12 +32,16 @@ import { openVocabulary } from './tags.ts'
  */
 const JOURNAL_BEGINS = new Date('2026-09-16T00:00:00.000Z')
 
+/** The import writes every fifteen minutes; a record much older than that means it has stopped. */
+const STALE = 60 * 60_000
+
 const gate = must('gate')
 const status = must('status')
 const app = must('app')
 const signout = must<HTMLButtonElement>('signout')
 const tagsButton = must<HTMLButtonElement>('tags-button')
 const freshness = must('freshness')
+const account = must('sub')
 
 const form = must<HTMLFormElement>('signin')
 const email = must<HTMLInputElement>('email')
@@ -48,26 +54,19 @@ function only(panel: HTMLElement): void {
   for (const node of [gate, status, app]) node.hidden = node !== panel
 }
 
-function p(className: string, text: string): HTMLParagraphElement {
-  const node = document.createElement('p')
-  node.className = className
-  node.textContent = text
-  return node
-}
-
 /** How long ago the import last wrote the account row. */
 function ago(at: Date): string {
   const minutes = Math.round((Date.now() - at.getTime()) / 60_000)
-  if (minutes < 1) return 'record written just now'
-  if (minutes < 60) return `record written ${minutes} min ago`
+  if (minutes < 1) return 'Synced just now'
+  if (minutes < 60) return `Synced ${minutes} min ago`
   const hours = Math.round(minutes / 60)
-  return hours < 48 ? `record written ${hours} h ago` : `record written ${Math.round(hours / 24)} d ago`
+  return hours < 48 ? `Synced ${hours} h ago` : `Synced ${Math.round(hours / 24)} days ago`
 }
 
 function askToSignIn(reason?: string): void {
-  signout.hidden = tagsButton.hidden = true
-  freshness.textContent = ''
-  signinError.textContent = reason ?? ''
+  signout.hidden = tagsButton.hidden = account.hidden = freshness.hidden = true
+  signinError.replaceChildren()
+  if (reason !== undefined) signinError.append(icon('alert'), h('span', '', reason))
   signinError.hidden = reason === undefined
   only(gate)
   email.focus()
@@ -81,17 +80,20 @@ function askToSignIn(reason?: string): void {
  * keeps coming back means the record and the broker have genuinely diverged.
  */
 function failed(error: unknown): void {
-  const reload = document.createElement('button')
-  reload.textContent = 'Reload'
+  const reload = h('button', 'btn primary') as HTMLButtonElement
+  reload.type = 'button'
+  reload.append(icon('refresh'), 'Try again')
   reload.addEventListener('click', () => location.reload())
 
-  status.replaceChildren(
-    p('error', error instanceof Error ? error.message : String(error)),
-    p('hint',
-      'If the import was writing to the record as this page read it, the two ' +
-      'disagree for a moment and reloading settles it. If it keeps happening, ' +
-      'the backend\'s log is where the reason will be.'),
+  const card = h('div', 'card status-card')
+  const mark = h('div', 'status-icon')
+  mark.append(icon('alert'))
+  card.append(mark,
+    h('h2', '', 'Your journal didn’t load'),
+    h('p', 'status-hint', 'The import was probably mid-write. Try again in a moment; if it keeps happening, the backend’s log will say why.'),
+    h('p', 'status-error', error instanceof Error ? error.message : String(error)),
     reload)
+  status.replaceChildren(card)
   only(status)
 }
 
@@ -99,7 +101,9 @@ async function load(): Promise<void> {
   const session = storedSession()
   if (session === null) { askToSignIn(); return }
 
-  status.replaceChildren(p('', 'Reading the record…'))
+  const waiting = h('div', 'loading')
+  waiting.append(h('div', 'spinner'), h('p', '', 'Loading your trades…'))
+  status.replaceChildren(waiting)
   only(status)
 
   try {
@@ -111,8 +115,12 @@ async function load(): Promise<void> {
     const margin = openMargin(accountId, annotations)
 
     only(app)
-    signout.hidden = tagsButton.hidden = false
+    signout.hidden = tagsButton.hidden = freshness.hidden = false
+    signout.dataset.tip = session.email ? 'Signed in as ' + session.email : 'Sign out'
     freshness.textContent = ago(feed.fetchedAt)
+    freshness.classList.toggle('stale', Date.now() - feed.fetchedAt.getTime() > STALE)
+    freshness.dataset.tip = 'When the import last wrote to the record: ' +
+      feed.fetchedAt.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     drawPage(journal, margin, openVocabulary(tags))
   } catch (error) {
     if (error instanceof AuthError) askToSignIn(error.message)
@@ -123,6 +131,7 @@ async function load(): Promise<void> {
 form.addEventListener('submit', (event) => {
   event.preventDefault()
   signinButton.disabled = true
+  signinButton.textContent = 'Signing in…'
   signinError.hidden = true
   void signIn(email.value, password.value)
     .then(() => {
@@ -130,11 +139,14 @@ form.addEventListener('submit', (event) => {
       return load()
     })
     .catch((error: unknown) => {
-      signinError.textContent = error instanceof Error ? error.message : String(error)
+      signinError.replaceChildren(icon('alert'), h('span', '', error instanceof Error ? error.message : String(error)))
       signinError.hidden = false
       only(gate)
     })
-    .finally(() => { signinButton.disabled = false })
+    .finally(() => {
+      signinButton.disabled = false
+      signinButton.textContent = 'Sign in'
+    })
 })
 
 signout.addEventListener('click', () => {
@@ -142,4 +154,11 @@ signout.addEventListener('click', () => {
   location.reload()
 })
 
+// The buttons in the page's own markup take their icons here, so every icon
+// is drawn from the one set in `icons.ts`.
+tagsButton.prepend(icon('tag'))
+signout.prepend(icon('log-out'))
+must('tags-close').append(icon('x'))
+
+enableTips()
 void load()

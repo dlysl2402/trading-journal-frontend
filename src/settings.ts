@@ -12,8 +12,10 @@
  */
 
 import { h, must } from './dom.ts'
+import { icon } from './icons.ts'
 import type { Kind, Tag, Vocabulary } from './tags.ts'
 import { KINDS } from './tags.ts'
+import { tipMark } from './tips.ts'
 
 interface Settings {
   open: () => void
@@ -49,6 +51,7 @@ export function createSettings(vocabulary: Vocabulary, changed: () => void): Set
     input.type = 'text'
     input.className = 'tag-field ' + (key === 'label' ? 'name' : 'meaning')
     input.placeholder = placeholder
+    input.setAttribute('aria-label', (key === 'label' ? 'Name of ' : 'What this means: ') + tag.label)
     input.value = tag[key] ?? ''
     input.addEventListener('blur', () => {
       const value = input.value.trim()
@@ -65,7 +68,7 @@ export function createSettings(vocabulary: Vocabulary, changed: () => void): Set
 
   function row(tag: Tag, neighbours: Tag[]): HTMLElement {
     const line = h('div', 'tag-row' + (tag.archived ? ' retired' : ''))
-    line.append(field(tag, 'label', 'Name'), field(tag, 'description', 'What it means, so it means the same thing next month'))
+    line.append(field(tag, 'label', 'Name'), field(tag, 'description', 'What it means'))
 
     // A rename in the field beside a button lands before the button is
     // pressed, so every write here starts from the tag as it stands, not from
@@ -73,10 +76,13 @@ export function createSettings(vocabulary: Vocabulary, changed: () => void): Set
     const index = neighbours.indexOf(tag)
     const move = (by: number): HTMLButtonElement => {
       const other = neighbours[index + by]
-      const button = h('button', 'quiet arrow', by < 0 ? '↑' : '↓') as HTMLButtonElement
+      const button = h('button', 'icon-btn') as HTMLButtonElement
       button.type = 'button'
+      button.append(icon(by < 0 ? 'arrow-up' : 'arrow-down'))
       button.disabled = other === undefined
-      button.title = by < 0 ? 'Move up' : 'Move down'
+      const hint = (by < 0 ? 'Move up' : 'Move down') + ' the list'
+      button.setAttribute('aria-label', hint + ': ' + tag.label)
+      if (other !== undefined) button.dataset.tip = hint
       if (other !== undefined) {
         button.addEventListener('click', () => {
           // Swapping sort keys keeps the rest of the list where it was.
@@ -89,8 +95,12 @@ export function createSettings(vocabulary: Vocabulary, changed: () => void): Set
       }
       return button
     }
-    const retire = h('button', 'quiet', tag.archived ? 'Restore' : 'Retire') as HTMLButtonElement
+    const retire = h('button', 'btn ghost small retire') as HTMLButtonElement
     retire.type = 'button'
+    retire.append(icon(tag.archived ? 'undo' : 'archive'), tag.archived ? 'Restore' : 'Retire')
+    retire.dataset.tip = tag.archived
+      ? 'Put it back in the picker'
+      : 'Take it out of the picker. Trades that carry it keep it.'
     retire.addEventListener('click', () => {
       const now = current(tag)
       void attempt(() => vocabulary.save({ ...now, archived: !now.archived })).then(draw)
@@ -104,7 +114,8 @@ export function createSettings(vocabulary: Vocabulary, changed: () => void): Set
     const input = document.createElement('input')
     input.type = 'text'
     input.className = 'tag-field new'
-    input.placeholder = 'New ' + kind + ' tag…'
+    input.placeholder = '+ Add a ' + kind + ' tag'
+    input.setAttribute('aria-label', 'New ' + kind + ' tag')
     const create = (): void => {
       const label = input.value.trim()
       if (label === '') return
@@ -120,10 +131,11 @@ export function createSettings(vocabulary: Vocabulary, changed: () => void): Set
   function draw(): void {
     body.replaceChildren()
     for (const guide of KINDS) {
-      const section = h('section', 'tag-kind')
+      const section = h('section', 'tag-kind kind-' + guide.kind)
       const head = h('div', 'pick-head')
-      head.append(h('h4', '', guide.title), h('span', 'pick-asks', guide.asks))
-      section.append(head, h('p', 'pick-means', guide.means))
+      head.append(h('i', 'kind-dot'), h('h4', '', guide.title), h('span', 'pick-asks', guide.asks),
+        tipMark(guide.means, 'About ' + guide.title.toLowerCase()))
+      section.append(head)
 
       const all = vocabulary.all().filter((tag) => tag.kind === guide.kind)
       const live = all.filter((tag) => !tag.archived)
@@ -131,7 +143,7 @@ export function createSettings(vocabulary: Vocabulary, changed: () => void): Set
       section.append(newRow(guide.kind))
       const retired = all.filter((tag) => tag.archived)
       if (retired.length > 0) {
-        section.append(h('p', 'pick-means retired-head', 'Retired'))
+        section.append(h('p', 'retired-head', 'Retired'))
         for (const tag of retired) section.append(row(tag, []))
       }
       body.append(section)
