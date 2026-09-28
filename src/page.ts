@@ -23,9 +23,9 @@
  * `calendar.ts`, the list in `table.ts`, the review queue in `queue.ts`, the
  * breakdown by tag in `insights.ts` — and this is where they are wired to one
  * another: a day on the calendar narrows the list, a point on the curve opens
- * a trade, and a save anywhere redraws everything that counts written-up
- * trades. `tabs.ts` owns the tab a trade opens in, and `trade.ts` what is
- * drawn in it.
+ * a trade, a play in the breakdown opens its page, and a save anywhere redraws
+ * everything that counts written-up trades. `tabs.ts` owns the tab a trade or
+ * a play opens in, and `trade.ts` and `playbook.ts` what is drawn in each.
  */
 
 import { drawCalendar } from './calendar.ts'
@@ -308,6 +308,7 @@ export function drawPage(journal: Journal, margin: Margin, vocabulary: Vocabular
     entries.map((entry) => ({ result: entry.result, positionId: entry.trade.positionId })), {
       format, margin, vocabulary, review: nextToReview,
       pick: (group) => { list.showGroup(group) },
+      play: (slug) => { tabs.openPlay(slug) },
     })
 
   drawCurve(must<SVGSVGElement>('chart'), must('tooltip'), points, format, open)

@@ -5,7 +5,8 @@ queue of the trades still waiting to be written up, a calendar of days, what the
 broker's own fields say about how the trades were run, what your grades and tags
 say about which setups pay, and every closed trade in a list you can narrow —
 and, behind any row you click, that trade opened up in a tab of its own, with
-somewhere to write about it.
+somewhere to write about it. Each setup you tag has a tab of its own too, with
+the statistics of every trade that ran it.
 
 It is a static page. It signs in to Supabase, reads the record the import keeps
 there, rebuilds the round trips in the browser, and works every figure out from
@@ -59,9 +60,10 @@ the one change that needs both repositories in the same breath.
 | 4 | the vocabulary | `src/tags.ts` — the four kinds of tag, what each is for, and the words in each |
 | — | the drawing | `src/page.ts` — the page, from the `Journal` itself, and the wiring between its pieces |
 | — | the pieces | `src/chart.ts`, `src/calendar.ts`, `src/table.ts`, `src/queue.ts`, `src/insights.ts` — the curve, the calendar, the list, the review queue and what's working |
-| — | the sifting | `src/filter.ts` — which trades the list shows; `src/breakdown.ts` — the written-up trades grouped by grade or by tag. Both pure, and tested |
-| — | the tabs | `src/tabs.ts` — the overview and one tab per opened trade, and the address in the URL |
+| — | the sifting | `src/filter.ts` — which trades the list shows; `src/breakdown.ts` — the written-up trades grouped by grade or by tag; `src/edge.ts` — what one play's trades came to. All three pure, and tested |
+| — | the tabs | `src/tabs.ts` — the overview and one tab per opened trade or play, and the address in the URL |
 | — | one trade | `src/trade.ts` — a trade drawn out in full, and where you write |
+| — | one play | `src/playbook.ts` — a setup's page: every trade that ran it, summed; `src/rcurve.ts` — its R added up trade by trade |
 | — | the tape | `src/tape.ts` — a trade's recording, played at the top of its tab, with the moments your note points at marked on it |
 | — | the words | `src/settings.ts` — the dialog where tags are named, described, ordered and retired |
 
@@ -109,8 +111,9 @@ The list narrows as you ask it to: by words in the symbol, a tag or a note; to
 winners or losers, longs or shorts; to the trades still waiting for a review, or
 the ones done. Press a filter again to let it go. A day on the calendar narrows it to that day, and a row of
 **What's working** — the written-up trades grouped by grade, play, context,
-trigger or mistake, with what each group came to — to that group. The figures
-above the list are always every trade; only the list narrows.
+trigger or mistake, with what each group came to — to that group; a play's row
+opens the play's own page instead (see *Reading a play*). The figures above the
+list are always every trade; only the list narrows.
 
 **The tape is written about, moment by moment.** Watch it and press `M` where
 something happens — the setup forming, the entry, the first piece off — and the
@@ -173,8 +176,8 @@ edit as a line.
 Nothing needs a save button. A grade or a tag is saved by the click that sets
 it, and a note by leaving it — or by `⌘↵`, or **Save notes** under them, for
 saving without leaving. `Esc` puts the pen down and `Esc` again closes the tab;
-`←` `→` move the tab to the newer or older trade, and `N` to the next one
-waiting for a review. None of those keys do anything while you are typing, so
+`←` `→` move the tab to the newer or older trade, `N` to the next one
+waiting for a review, and `P` to the page of the play it ran. None of those keys do anything while you are typing, so
 the arrows still move the caret in a note. A save the record refuses leaves your
 words on the screen and says why, and holds the tab open rather than carrying
 them off it.
@@ -193,6 +196,60 @@ editor cannot describe, it does not keep: pasted markup arrives as plain text,
 and the document stays inside four kinds of block and six kinds of run. A
 moment is a time on whichever recording is on screen; a trade with more than
 one picks between them above the tape.
+
+## Reading a play
+
+A play is the shape of trade you ran, and so the unit a playbook is kept in:
+each one has a page of its own, with every trade that carries it summed. A
+play's row in **What's working** opens it, and so does the book beside the play
+on a trade that ran it, or `P` there. It opens in a tab as a trade does, at
+`#play/<slug>`, and `←` `→` step through the plays in What's working's order,
+best first, so the whole playbook reads in one pass.
+
+It is read in R: what each trade made in units of the stop it was opened with,
+before costs. R is the same on a small position and a big one, so it measures
+the setup apart from how hard you pressed it. How hard you pressed it is
+measured on its own, as the share of the account each trade stood to lose, and
+what the two came to together is the return, net of costs, as everywhere else.
+
+- **Expectancy** heads it: the average R, what one more trade of the kind is
+  worth. Under it is the range the true average most likely sits in, 95 times
+  in 100. It is wide on a few trades and narrows as they add up, and while it
+  spans zero it is tinted, since the edge could still be luck.
+- **Six figures** follow: how often it won; the average winner over the average
+  loser, in R; what it did to the account; the risk a trade carried, on average
+  and grade by grade, which says whether the A's were pressed harder than the
+  C's; the share of the play's total its best tenth of trades made; and the
+  losses that went more than a tenth of an R past their stop.
+- **When it works** splits the trades one way at a time: by grade, context,
+  trigger, mistake, the hour they were opened, the side or the market, each
+  group with its win rate, average R, risk and total R. Grade comes first
+  because the rest depends on it. An A that does not beat a B means the grading
+  is wrong, and one that does is the version to size up.
+- **Cumulative R** adds the play's R up trade by trade, with each trade's own R
+  as a bar under the line, drawn against the trades rather than the calendar.
+  Beside it are the last ten trades' win rate and average R, where a setup that
+  has stopped working shows first, and the deepest the play has fallen from its
+  best.
+- **Outcomes** is every trade by its R, in bars half an R wide while they fit.
+  A full stop is the −1R bar, a scratch the 0R bar, and a long right tail is
+  where the play's money is.
+- **How you run it** sets the play run clean against the play run with a
+  mistake, then how the trades closed and what each way made, what the winners
+  took of the reward their targets planned, how long winners and losers were
+  held, and what costs took.
+- **Trades** lists every one that ran it, newest first. By grade, the A's come
+  first, the play from its best version down; by best or worst R, the ones to
+  watch again. Any row opens its trade, recording and all.
+
+A scratch, a trade that closed where it opened and lost only its costs, is no
+win, and it is kept out of the losers' average too, where it would pass for a
+loser cut short and make every loss look smaller than the stop. Every group on
+the page narrows the play's list to its trades: a bar of the outcomes, a row
+of the table, a way the trades closed, clean or not. Press it again to let go.
+The page is drawn again whenever its tab comes back, since a trade written up
+in the meantime may have joined it, and nothing on it is stored: `src/edge.ts`
+works it out from the trades and what you wrote against them.
 
 ## Setting it up
 

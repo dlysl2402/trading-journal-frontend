@@ -305,6 +305,7 @@
   .stat-value { font-size: 26px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; color: var(--ink); }
   .stat-value.up { color: var(--up); }
   .stat-value.down { color: var(--down); }
+  .stat-value.warn { color: var(--warn); }
   .stat-note { margin-top: auto; font-size: 12px; line-height: 1.45; color: var(--dim); }
   .meter { display: flex; gap: 2px; height: 6px; }
   .meter i { border-radius: 3px; min-width: 3px; }
@@ -739,6 +740,70 @@
   .writing .moment:hover { background: var(--accent-hi); }
   .writing .moment.now { background: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
 
+  /* ── A play, opened up: a setup's page ────────────────────────────────── */
+  .card-title { display: flex; align-items: center; gap: 5px; }
+  .play-means { max-width: 68ch; margin-top: 8px; font-size: 14px; color: var(--body); }
+  .play .trade-sub { margin-top: 6px; }
+  .play .trade-title .retired-play { font-size: 12px; font-weight: 600; letter-spacing: 0; text-decoration: none; }
+  .play .trade-result .eyebrow { display: inline-flex; align-items: center; gap: 4px; }
+  .play-range { font-size: 12.5px; font-weight: 600; color: var(--dim); font-variant-numeric: tabular-nums; cursor: help; }
+  .play-range.unproven { color: var(--warn); }
+  .play .stats { margin-top: 0; }
+  .play-versions, .play .trade-body { margin-top: 16px; }
+  .play .readout { margin: 0; }
+  .play .readout dd .up, .play .readout dd .down { font-weight: 700; }
+
+  /* The running total, and each trade's R as a bar under it. */
+  .rcurve-plot { position: relative; height: 270px; margin: 4px -6px 0; }
+  .rcurve { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible; touch-action: pan-y; border-radius: 8px; }
+  .rcurve:focus-visible { outline-offset: 4px; }
+  .rbar { transition: opacity .12s; }
+  .rbar.up { fill: var(--up-mark); }
+  .rbar.down { fill: var(--down-mark); }
+  .rbar.flat { fill: var(--axis); }
+  .rcurve:hover .rbar:not(.on), .rcurve:focus-visible .rbar:not(.on) { opacity: .4; }
+
+  /* The outcomes, one bar per step of R; a bar narrows the list to its trades. */
+  .bins { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: end; gap: 3px; height: 176px; padding-top: 4px; }
+  .bin {
+    display: flex; flex-direction: column; justify-content: flex-end; height: 100%; min-width: 0; padding: 0;
+    border: 0; border-radius: 6px 6px 0 0; background: none;
+  }
+  .bin b { font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .bin i { display: block; min-height: 0; border-radius: 4px 4px 1px 1px; transition: filter .12s, box-shadow .12s; }
+  .bin.up i { background: var(--up-mark); }
+  .bin.down i { background: var(--down-mark); }
+  .bin.flat i { background: var(--axis); }
+  .bin:hover i { filter: brightness(.9); }
+  .bin.on i { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent); }
+  .bin:disabled { cursor: default; }
+  .bins-axis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--axis); }
+  .bins-axis span { overflow: visible; white-space: nowrap; text-align: center; font-size: 11px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .play-table th:nth-child(5) { width: 11%; }
+  .play-table .total { width: 30%; }
+  .play-table tr.pick:has(.group-name.on) td { background: var(--accent-soft); }
+  .hour, .play-table .sym { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* The groups in how you run it are ways into the list too. */
+  .duo-pick, .legend-pick { font: inherit; color: inherit; text-align: left; border: 0; background: none; border-radius: 10px; transition: background .12s; }
+  .duo-pick { padding: 6px 8px; margin: -6px -8px; }
+  .legend-pick { grid-column: 1 / -1; width: calc(100% + 12px); display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 3px 6px; margin: -3px -6px; }
+  .duo-pick:hover, .legend-pick:hover { background: var(--hover); }
+  .duo-pick.on, .legend-pick.on { background: var(--accent-soft); }
+  .play .habit > .duo-value { margin-top: -2px; }
+
+  .play-trades .sym-side.play-side { display: inline-block; }
+  .play-trades .marks .chip { max-width: 160px; }
+
+  /* The way from a trade to its play's page, beside the play it ran. */
+  .icon-btn.play-open { width: 26px; height: 26px; margin: -4px 0; color: var(--k-play); }
+  .icon-btn.play-open .icon { width: 15px; height: 15px; }
+  .icon-btn.play-open:hover { background: var(--k-play-soft); color: var(--k-play); }
+  /* And from What's working. */
+  .group-go { width: 14px; height: 14px; margin-left: 2px; align-self: center; color: var(--muted); transition: color .12s, transform .12s; }
+  .facet-table tr.pick:hover .group-go { color: var(--accent-ink); transform: translateX(2px); }
+
   /* ── The vocabulary, opened up ────────────────────────────────────────── */
   .tags-dialog {
     width: min(820px, calc(100% - 24px)); max-height: calc(100vh - 48px); margin: auto; padding: 0;
@@ -835,6 +900,11 @@
     .duo { gap: 10px; }
     .dbar { min-width: 40px; }
     .dbar-value { min-width: 56px; }
+    .group-go { display: none; }
+    .rcurve-plot { height: 230px; }
+    .bins { height: 140px; gap: 2px; }
+    .bins-axis { gap: 2px; }
+    .bins-axis span { font-size: 10px; }
   }
 
   @media (max-width: 400px) { .topbar .account { display: none; } }

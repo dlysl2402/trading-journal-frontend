@@ -4,8 +4,9 @@
  * One facet at a time — grade, play, context, trigger or mistake — and for
  * each group how many trades, how often they won, what an average one did and
  * what they came to together. This is the payoff for tagging: the question a
- * tag was written to answer, answered. A row is also a way into the list: it
- * narrows the trades below to that group.
+ * tag was written to answer, answered. A row is also a way in: a play's opens
+ * the play's own page, where it is taken apart, and any other narrows the
+ * trades below to that group.
  *
  * It is redrawn after every save, since a grade or a tag moves a trade between
  * groups; the numbers are small and the table is short, so it is simply drawn
@@ -17,6 +18,7 @@ import { breakdown } from './breakdown.ts'
 import { h } from './dom.ts'
 import type { Filter } from './filter.ts'
 import type { Format } from './format.ts'
+import { icon } from './icons.ts'
 import type { Margin } from './margin.ts'
 import { isBlank } from './margin.ts'
 import type { Vocabulary } from './tags.ts'
@@ -36,6 +38,8 @@ export interface InsightsContext {
   vocabulary: Vocabulary
   /** Narrow the list to one group. */
   pick: (group: NonNullable<Filter['group']>) => void
+  /** Open a play's page. */
+  play: (slug: string) => void
   /** Open the next trade that has nothing written against it. */
   review: () => void
 }
@@ -43,7 +47,7 @@ export interface InsightsContext {
 export function createInsights(
   root: HTMLElement, entries: { result: number; positionId: string }[], context: InsightsContext,
 ): { redraw: () => void } {
-  const { format, margin, vocabulary, pick, review } = context
+  const { format, margin, vocabulary, pick, play, review } = context
   const { plural, signed, tone } = format
   let facet: Facet = 'play'
 
@@ -112,9 +116,13 @@ export function createInsights(
       const choose = h('button', 'group-name') as HTMLButtonElement
       choose.type = 'button'
       choose.append(nameOf(group, current.title))
-      choose.setAttribute('aria-label', `Show the ${plural(group.count, 'trade')} in ${group.key === null ? 'no ' + current.title.toLowerCase() : vocabulary.label(group.key)}`)
+      // A play has a page of its own; every other group narrows the list.
+      const page = facet === 'play' ? group.key : null
+      if (page !== null) choose.append(icon('chevron-right', 'icon group-go'))
+      choose.setAttribute('aria-label', page !== null ? `Open ${vocabulary.label(page)}`
+        : `Show the ${plural(group.count, 'trade')} in ${group.key === null ? 'no ' + current.title.toLowerCase() : vocabulary.label(group.key)}`)
       if (group.count < FEW) choose.dataset.tip = `Only ${plural(group.count, 'trade')} so far — too few to read much into`
-      const go = (): void => pick({ facet, key: group.key })
+      const go = (): void => { if (page !== null) play(page); else pick({ facet, key: group.key }) }
       choose.addEventListener('click', (event) => { event.stopPropagation(); go() })
       row.addEventListener('click', go)
       row.insertCell().append(choose)

@@ -88,6 +88,8 @@ export interface Place {
   step: (by: number) => void
   /** Move this panel's tab to the next trade with nothing written against it. */
   next: () => void
+  /** Open a play's page. */
+  play: (slug: string) => void
   /** How many trades other than this one have nothing written against them. */
   unwritten: () => number
   /** Show the overview, leaving this tab open. */
@@ -125,6 +127,9 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
   let refresh = (): void => {}
   /** Set a grade from the keyboard, as its button would. */
   let grade = (_: Grade): void => {}
+  /** The play the trade ran, if you have named one. */
+  const playOf = (): string | undefined =>
+    margin.get(trade.positionId).tags.find((slug) => vocabulary.kindOf(slug) === 'play')
 
   // ── the tape, and the notes that point into it ───────────────────────────
 
@@ -433,6 +438,24 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     // Tags: every word in the vocabulary, by kind, lit when the trade carries it.
     for (const guide of KINDS) {
       const box = group(guide.title, guide.asks, guide.means)
+      // The play a trade ran has a page of its own, with every trade that ran it.
+      if (guide.kind === 'play') {
+        const onward = h('button', 'icon-btn play-open') as HTMLButtonElement
+        onward.type = 'button'
+        onward.append(icon('book'))
+        onward.addEventListener('click', () => {
+          const slug = playOf()
+          if (slug !== undefined) place.play(slug)
+        })
+        box.head.append(onward)
+        redraws.push(() => {
+          const slug = playOf()
+          onward.hidden = slug === undefined
+          const tip = slug === undefined ? '' : 'Open ' + vocabulary.label(slug) + ' (P)'
+          onward.dataset.tip = tip
+          onward.setAttribute('aria-label', tip)
+        })
+      }
       const chips = h('div', 'chips kind-' + guide.kind)
       // What was lit before this drawing, so only a tag just put on lands with
       // a flourish; null until the first drawing, which lights without one.
@@ -724,6 +747,7 @@ export function drawTrade(trade: Trade, place: Place, drawing: Drawing): Panel {
     if (event.key === 'ArrowLeft') { event.preventDefault(); place.step(-1) }
     else if (event.key === 'ArrowRight') { event.preventDefault(); place.step(1) }
     else if (event.key === 'n' || event.key === 'N') { event.preventDefault(); if (place.unwritten() > 0) place.next() }
+    else if ((event.key === 'p' || event.key === 'P') && playOf() !== undefined) { event.preventDefault(); place.play(playOf()!) }
     else if (letter !== undefined) { event.preventDefault(); grade(letter) }
     else if (tape.key(event)) event.preventDefault()
   }
